@@ -25,7 +25,9 @@ describe("worker routes", () => {
       }
 
       const searchResponse = await worker.fetch(
-        new Request("https://example.com/api/search?q=react&limit=5"),
+        new Request(
+          "https://example.com/api/search?q=react%20facebook&sort=stars&direction=desc&limit=5"
+        ),
         env
       )
       const tagsResponse = await worker.fetch(
@@ -40,6 +42,7 @@ describe("worker routes", () => {
       const tagsPayload = await tagsResponse.json()
 
       expect(searchPayload.items[0]?.name).toBe("React")
+      expect(searchPayload.totalApprox).toBe(1)
       expect(tagsPayload.items.map((tag: { id: string }) => tag.id)).toEqual(
         expect.arrayContaining(["react", "component-library"])
       )

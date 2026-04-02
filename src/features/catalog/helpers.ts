@@ -1,70 +1,9 @@
 import type { CSSProperties, Dispatch, KeyboardEvent, SetStateAction } from "react"
 
-import type { CatalogRow, ParsedFilter, SortColumn, SortState } from "./types"
-
-export function parseTextTerms(query: string) {
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((term) => term.trim())
-    .filter(Boolean)
-}
-
-export function matchesFilter(tool: CatalogRow, filter: ParsedFilter) {
-  if (filter.tags.length > 0) {
-    const normalizedTags = tool.tags.map((tag) => normalizeValue(tag))
-
-    if (!filter.tags.every((tag) => normalizedTags.includes(tag))) {
-      return false
-    }
-  }
-
-  if (filter.textTerms.length === 0) {
-    return true
-  }
-
-  const searchableText = normalizeValue(
-    [
-      tool.name,
-      tool.description,
-      tool.npmPackageName,
-      tool.repositoryName,
-      tool.tags.join(" "),
-    ]
-      .filter(Boolean)
-      .join(" ")
-  )
-
-  return filter.textTerms.every((term) => searchableText.includes(term))
-}
-
-export function sortRows(rows: CatalogRow[], sortState: SortState) {
-  return [...rows].sort((left, right) => {
-    const directionMultiplier = sortState.direction === "asc" ? 1 : -1
-    let result = 0
-
-    switch (sortState.column) {
-      case "name":
-        result = compareStrings(left.name, right.name)
-        break
-      case "tags":
-        result = compareStrings(left.tags.join(" "), right.tags.join(" "))
-        break
-      case "stars":
-        result = compareNumbers(left.stars, right.stars)
-        break
-    }
-
-    if (result === 0) {
-      result = compareStrings(left.name, right.name)
-    }
-
-    return result * directionMultiplier
-  })
-}
+import type { SortState } from "./types"
 
 export function toggleSortColumn(
-  column: SortColumn,
+  column: SortState["column"],
   setSortState: Dispatch<SetStateAction<SortState>>
 ) {
   setSortState((currentState) =>
@@ -77,7 +16,7 @@ export function toggleSortColumn(
   )
 }
 
-export function getAriaSort(column: SortColumn, sortState: SortState) {
+export function getAriaSort(column: SortState["column"], sortState: SortState) {
   if (sortState.column !== column) {
     return "none"
   }
@@ -281,14 +220,6 @@ function scoreSuggestion(tag: string, token: string) {
   }
 
   return 0
-}
-
-function compareStrings(left: string, right: string) {
-  return normalizeValue(left).localeCompare(normalizeValue(right))
-}
-
-function compareNumbers(left?: number, right?: number) {
-  return (left ?? 0) - (right ?? 0)
 }
 
 function hashString(value: string) {

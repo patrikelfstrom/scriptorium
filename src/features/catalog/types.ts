@@ -1,3 +1,8 @@
+import type {
+  CatalogSortColumn,
+  CatalogSortDirection,
+} from "../../../shared/catalog"
+
 export type CatalogRow = {
   id: string
   name: string
@@ -11,14 +16,7 @@ export type CatalogRow = {
   tags: string[]
 }
 
-export type SortColumn = "name" | "stars" | "tags"
-
 export type SortState = {
-  column: SortColumn
-  direction: "asc" | "desc"
-}
-
-export type ParsedFilter = {
-  tags: string[]
-  textTerms: string[]
+  column: CatalogSortColumn
+  direction: CatalogSortDirection
 }

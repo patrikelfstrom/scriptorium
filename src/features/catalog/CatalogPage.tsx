@@ -3,7 +3,6 @@ import {
   Sun,
 } from "lucide-react"
 import {
-  useDeferredValue,
   useId,
   useState,
 } from "react"
@@ -14,13 +13,10 @@ import {
   getActiveToken,
   getIsDarkMode,
   getTagSuggestions,
-  matchesFilter,
   normalizeValue,
-  parseTextTerms,
-  sortRows,
 } from "./helpers"
 import { useCatalogData } from "./hooks/useCatalogData"
-import type { SortState } from "./types"
+import { useCatalogState } from "./hooks/useCatalogState"
 import { GitHubIcon } from "./components/GitHubIcon"
 import { ResultsTable } from "./components/ResultsTable"
 import { SearchFilter } from "./components/SearchFilter"
@@ -28,40 +24,54 @@ import { SearchFilter } from "./components/SearchFilter"
 export function CatalogPage() {
   const { theme, setTheme } = useTheme()
   const inputId = useId()
-  const { rows, availableTags, isLoading, errorMessage } = useCatalogData()
-  const [searchText, setSearchText] = useState("")
-  const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
-  const [sortState, setSortState] = useState<SortState>({
-    column: "name",
-    direction: "asc",
+  const {
+    debouncedSearchText,
+    searchText,
+    selectedTags,
+    setSearchText,
+    setSelectedTags,
+    setSortState,
+    sortState,
+  } = useCatalogState()
+  const {
+    rows,
+    availableTags,
+    errorMessage,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    totalRows,
+  } = useCatalogData({
+    query: debouncedSearchText,
+    selectedTags,
+    sortState,
   })
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
 
-  const allTags =
-    availableTags.length > 0
-      ? availableTags
-      : Array.from(
-          new Set(rows.flatMap((row) => row.tags.map(normalizeValue)))
-        ).sort((left, right) => left.localeCompare(right))
+  const allTags = availableTags.length
+    ? availableTags
+    : Array.from(new Set(rows.flatMap((row) => row.tags.map(normalizeValue)))).sort(
+        (left, right) => left.localeCompare(right)
+      )
   const selectedTagSet = new Set(selectedTags.map(normalizeValue))
-  const deferredSearchText = useDeferredValue(searchText)
-  const activeFilter = {
-    tags: selectedTags,
-    textTerms: parseTextTerms(deferredSearchText),
-  }
   const { token: activeToken } = getActiveToken(searchText)
   const tagSuggestions = getTagSuggestions(activeToken, selectedTags, allTags)
   const activeSuggestion =
     activeSuggestionIndex >= 0 && activeSuggestionIndex < tagSuggestions.length
       ? tagSuggestions[activeSuggestionIndex]
       : undefined
-  const filteredRows = rows.filter((tool) => matchesFilter(tool, activeFilter))
-  const sortedRows = sortRows(filteredRows, sortState)
   const isDarkMode = getIsDarkMode(theme)
+  const queryStateKey = [
+    debouncedSearchText,
+    selectedTags.join(","),
+    sortState.column,
+    sortState.direction,
+  ].join("|")
 
   return (
-    <main className="min-h-svh">
-      <section className="flex min-h-svh flex-col overflow-hidden bg-background/90 backdrop-blur">
+    <main className="h-svh">
+      <section className="flex h-full flex-col overflow-hidden bg-background/90 backdrop-blur">
         <div className="border-b border-border/60 bg-muted/30 px-4 py-4 sm:px-6">
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-4">
@@ -107,22 +117,27 @@ export function CatalogPage() {
                 tagSuggestions={tagSuggestions}
               />
               <div className="ml-auto flex shrink-0 gap-2 text-[0.65rem] tracking-[0.18em] text-muted-foreground uppercase">
-                <span>{isLoading ? "Loading" : `${filteredRows.length} shown`}</span>
-                <span>{rows.length} total</span>
+                <span>{isLoading ? "Loading" : `${rows.length} shown`}</span>
+                <span>{totalRows} total</span>
               </div>
             </div>
           </div>
         </div>
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex flex-1 overflow-hidden">
           <ResultsTable
             errorMessage={errorMessage}
+            fetchNextPage={fetchNextPage}
+            hasNextPage={hasNextPage}
             isDarkMode={isDarkMode}
+            isFetchingNextPage={isFetchingNextPage}
             isLoading={isLoading}
-            rows={sortedRows}
+            queryStateKey={queryStateKey}
+            rows={rows}
             selectedTagSet={selectedTagSet}
             setSelectedTags={setSelectedTags}
             setSortState={setSortState}
             sortState={sortState}
+            totalRows={totalRows}
           />
         </div>
       </section>

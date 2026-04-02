@@ -9,7 +9,7 @@ import {
 } from "../helpers/catalog-test-db"
 
 describe("catalog services", () => {
-  it("searches catalog rows with filters and cursors", async () => {
+  it("searches catalog rows with filters, term tokenization, and cursors", async () => {
     const database = await createTestCatalogDatabase()
 
     try {
@@ -42,7 +42,7 @@ describe("catalog services", () => {
         database.client,
         parseCatalogSearchParams(
           new URLSearchParams({
-            q: "react",
+            q: "ui facebook",
             tags: "ui",
             source: "npm",
             limit: "1",
@@ -54,6 +54,66 @@ describe("catalog services", () => {
       expect(result.items[0]?.name).toBe("React")
       expect(result.nextCursor).toBeNull()
       expect(result.totalApprox).toBe(1)
+    } finally {
+      await database.cleanup()
+    }
+  })
+
+  it("sorts catalog rows by stars and tags", async () => {
+    const database = await createTestCatalogDatabase()
+
+    try {
+      await seedCatalogPackage(database.client, {
+        sourceType: "npm",
+        sourceName: "react",
+        displayName: "React",
+        stars: 200_000,
+        tags: ["react", "ui"],
+      })
+      await seedCatalogPackage(database.client, {
+        sourceType: "npm",
+        sourceName: "astro",
+        displayName: "Astro",
+        stars: 45_000,
+        tags: ["framework", "ssg"],
+      })
+      await seedCatalogPackage(database.client, {
+        sourceType: "npm",
+        sourceName: "vue",
+        displayName: "Vue",
+        stars: 150_000,
+        tags: ["ui", "vue"],
+      })
+
+      const starsResult = await searchCatalog(
+        database.client,
+        parseCatalogSearchParams(
+          new URLSearchParams({
+            sort: "stars",
+            direction: "desc",
+          })
+        )
+      )
+      const tagsResult = await searchCatalog(
+        database.client,
+        parseCatalogSearchParams(
+          new URLSearchParams({
+            sort: "tags",
+            direction: "asc",
+          })
+        )
+      )
+
+      expect(starsResult.items.map((item) => item.name)).toEqual([
+        "React",
+        "Vue",
+        "Astro",
+      ])
+      expect(tagsResult.items.map((item) => item.name)).toEqual([
+        "React",
+        "Vue",
+        "Astro",
+      ])
     } finally {
       await database.cleanup()
     }

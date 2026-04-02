@@ -1,5 +1,10 @@
-export const DEFAULT_CATALOG_SEARCH_LIMIT = 200
+export const DEFAULT_CATALOG_SEARCH_LIMIT = 30
 export const MAX_CATALOG_SEARCH_LIMIT = 1000
+export const CATALOG_SORT_COLUMNS = ["name", "stars", "tags"] as const
+export const CATALOG_SORT_DIRECTIONS = ["asc", "desc"] as const
+
+export type CatalogSortColumn = (typeof CATALOG_SORT_COLUMNS)[number]
+export type CatalogSortDirection = (typeof CATALOG_SORT_DIRECTIONS)[number]
 
 export type CatalogItem = {
   packageKey: string
@@ -39,6 +44,8 @@ export type CatalogSearchParams = {
   source?: string
   limit: number
   cursor?: string | null
+  sort: CatalogSortColumn
+  direction: CatalogSortDirection
 }
 
 export type ParsedCatalogSearchParams = CatalogSearchParams & {

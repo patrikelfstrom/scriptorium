@@ -1,86 +1,78 @@
-import { startTransition, useEffect, useState } from "react"
+import {
+  useInfiniteQuery,
+  useQuery,
+} from "@tanstack/react-query"
 
-import type {
-  CatalogSearchResponse,
-  CatalogTagListResponse,
-} from "../../../../shared/catalog"
-
-import { createCatalogApiUrl } from "../api"
+import {
+  fetchCatalogSearchPage,
+  fetchCatalogTags,
+} from "../api"
 import { mapCatalogItemsToRows } from "../mappers"
 import { normalizeValue } from "../helpers"
-import type { CatalogRow } from "../types"
+import type { SortState } from "../types"
 
-export function useCatalogData() {
-  const [rows, setRows] = useState<CatalogRow[]>([])
-  const [availableTags, setAvailableTags] = useState<string[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [errorMessage, setErrorMessage] = useState<string>()
+export function useCatalogData(input: {
+  query: string
+  selectedTags: string[]
+  sortState: SortState
+}) {
+  const searchQuery = useInfiniteQuery({
+    queryKey: [
+      "catalog-search",
+      input.query,
+      input.selectedTags,
+      input.sortState.column,
+      input.sortState.direction,
+    ],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam, signal }) =>
+      fetchCatalogSearchPage(
+        {
+          cursor: pageParam,
+          query: input.query,
+          tags: input.selectedTags,
+          sort: input.sortState.column,
+          direction: input.sortState.direction,
+        },
+        signal
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+  })
 
-  useEffect(() => {
-    let isCancelled = false
+  const tagsQuery = useQuery({
+    queryKey: ["catalog-tags"],
+    queryFn: ({ signal }) => fetchCatalogTags(signal),
+  })
 
-    async function loadCatalog() {
-      setIsLoading(true)
-      setErrorMessage(undefined)
-
-      try {
-        const searchParams = new URLSearchParams({ limit: "1000" })
-        const [searchResponse, tagsResponse] = await Promise.all([
-          fetch(createCatalogApiUrl("/api/search", searchParams)),
-          fetch(createCatalogApiUrl("/api/tags")),
-        ])
-
-        if (!searchResponse.ok) {
-          throw new Error(`Search request failed with ${searchResponse.status}.`)
-        }
-
-        if (!tagsResponse.ok) {
-          throw new Error(`Tags request failed with ${tagsResponse.status}.`)
-        }
-
-        const searchPayload =
-          (await searchResponse.json()) as CatalogSearchResponse
-        const tagsPayload = (await tagsResponse.json()) as CatalogTagListResponse
-        const nextRows = mapCatalogItemsToRows(searchPayload.items ?? [])
-        const nextTags = (tagsPayload.items ?? [])
-          .map((item) => normalizeValue(item.id || item.label))
-          .filter(Boolean)
-          .sort((left, right) => left.localeCompare(right))
-
-        if (isCancelled) {
-          return
-        }
-
-        startTransition(() => {
-          setRows(nextRows)
-          setAvailableTags(nextTags)
-          setIsLoading(false)
-        })
-      } catch (error) {
-        if (isCancelled) {
-          return
-        }
-
-        setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "Failed to load the tooling catalog."
-        )
-        setIsLoading(false)
-      }
-    }
-
-    void loadCatalog()
-
-    return () => {
-      isCancelled = true
-    }
-  }, [])
+  const rows = (searchQuery.data?.pages ?? []).flatMap((page) =>
+    mapCatalogItemsToRows(page.items ?? [])
+  )
+  const availableTags = (tagsQuery.data?.items ?? [])
+    .map((item) => normalizeValue(item.id || item.label))
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right))
+  const totalRows = searchQuery.data?.pages[0]?.totalApprox ?? rows.length
+  const isLoading = searchQuery.isLoading || tagsQuery.isLoading
+  const errorMessage = getErrorMessage(searchQuery.error, tagsQuery.error)
 
   return {
     rows,
     availableTags,
-    isLoading,
     errorMessage,
+    fetchNextPage: searchQuery.fetchNextPage,
+    hasNextPage: searchQuery.hasNextPage,
+    isFetchingNextPage: searchQuery.isFetchingNextPage,
+    isLoading,
+    totalRows,
   }
+}
+
+function getErrorMessage(...errors: Array<unknown>) {
+  for (const error of errors) {
+    if (error instanceof Error) {
+      return error.message
+    }
+  }
+
+  return undefined
 }

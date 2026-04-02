@@ -2,6 +2,7 @@ import {
   decodeCatalogCursor,
   encodeCatalogCursor,
   parseCatalogSearchParams,
+  tokenizeCatalogQuery,
 } from "../../shared/catalog"
 import {
   createPackageKey,
@@ -22,7 +23,7 @@ describe("catalog core helpers", () => {
   it("parses search params", () => {
     const params = parseCatalogSearchParams(
       new URLSearchParams({
-        q: "  React  ",
+        q: "  React Query  ",
         tags: "UI, frontend, ui",
         source: " NPM ",
         limit: "9999",
@@ -31,13 +32,23 @@ describe("catalog core helpers", () => {
     )
 
     expect(params).toEqual({
-      query: "react",
+      query: "React Query",
       tags: ["ui", "frontend"],
       source: "npm",
       limit: 1000,
       cursor: encodeCatalogCursor(40),
+      sort: "name",
+      direction: "asc",
       offset: 40,
     })
+  })
+
+  it("tokenizes search queries with lowercase AND terms", () => {
+    expect(tokenizeCatalogQuery("  React   Query ui ")).toEqual([
+      "react",
+      "query",
+      "ui",
+    ])
   })
 
   it("normalizes tags and labels", () => {

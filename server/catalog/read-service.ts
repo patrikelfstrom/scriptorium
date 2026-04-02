@@ -1,5 +1,8 @@
 import {
   encodeCatalogCursor,
+  tokenizeCatalogQuery,
+  type CatalogSortColumn,
+  type CatalogSortDirection,
   type CatalogSearchResponse,
   type CatalogTagListParams,
   type CatalogTagListResponse,
@@ -12,6 +15,7 @@ export async function searchCatalog(
   client: CatalogDatabaseClient,
   params: ParsedCatalogSearchParams
 ): Promise<CatalogSearchResponse> {
+  const queryTerms = tokenizeCatalogQuery(params.query)
   const normalizedTags = Array.from(
     new Set(
       params.tags
@@ -20,11 +24,12 @@ export async function searchCatalog(
     )
   )
   const { clauses, args } = buildSearchWhereClause(
-    params.query,
+    queryTerms,
     normalizedTags,
     params.source
   )
   const listArgs = [...args, params.limit + 1, params.offset]
+  const orderByClause = getCatalogOrderByClause(params.sort, params.direction)
 
   const rowsResult = await client.execute({
     sql: `
@@ -42,34 +47,24 @@ export async function searchCatalog(
           p.downloads,
           p.downloads_period,
           p.dependent_packages_count,
-          CASE
-            WHEN ? <> '' AND p.search_name = ? THEN 0
-            WHEN ? <> '' AND p.search_name LIKE ? || '%' THEN 1
-            WHEN ? <> '' AND p.search_name LIKE '%' || ? || '%' THEN 2
-            ELSE 3
-          END AS exact_match_rank
+          COALESCE((
+            SELECT GROUP_CONCAT(ordered_tags.tag_id, ' ')
+            FROM (
+              SELECT pt.tag_id
+              FROM package_tags pt
+              WHERE pt.package_key = p.package_key
+              ORDER BY pt.tag_id ASC
+            ) AS ordered_tags
+          ), '') AS tags_sort_value
         FROM packages p
         ${clauses}
       )
       SELECT *
       FROM filtered
-      ORDER BY
-        exact_match_rank ASC,
-        stars DESC,
-        downloads DESC,
-        dependent_packages_count DESC,
-        display_name ASC
+      ORDER BY ${orderByClause}
       LIMIT ? OFFSET ?
     `,
-    args: [
-      params.query,
-      params.query,
-      params.query,
-      params.query,
-      params.query,
-      params.query,
-      ...listArgs,
-    ],
+    args: listArgs,
   })
 
   const countResult = await client.execute({
@@ -142,7 +137,11 @@ export async function listCatalogTags(
   }
 }
 
-function buildSearchWhereClause(query: string, tags: string[], source?: string) {
+function buildSearchWhereClause(
+  queryTerms: string[],
+  tags: string[],
+  source?: string
+) {
   const clauses = ["WHERE p.is_active = 1"]
   const args: Array<string | number> = []
 
@@ -151,9 +150,22 @@ function buildSearchWhereClause(query: string, tags: string[], source?: string) 
     args.push(source)
   }
 
-  if (query) {
-    clauses.push("AND p.search_name LIKE '%' || ? || '%'")
-    args.push(query)
+  for (const term of queryTerms) {
+    clauses.push(
+      `AND (
+        p.search_name LIKE '%' || ? || '%'
+        OR LOWER(COALESCE(p.description, '')) LIKE '%' || ? || '%'
+        OR LOWER(COALESCE(p.repository_name, '')) LIKE '%' || ? || '%'
+        OR LOWER(COALESCE(p.npm_package_name, '')) LIKE '%' || ? || '%'
+        OR EXISTS (
+          SELECT 1
+          FROM package_tags pt_search
+          WHERE pt_search.package_key = p.package_key
+            AND pt_search.tag_id LIKE '%' || ? || '%'
+        )
+      )`
+    )
+    args.push(term, term, term, term, term)
   }
 
   if (tags.length > 0) {
@@ -173,6 +185,23 @@ function buildSearchWhereClause(query: string, tags: string[], source?: string) 
   return {
     clauses: clauses.join("\n"),
     args,
+  }
+}
+
+function getCatalogOrderByClause(
+  sort: CatalogSortColumn,
+  direction: CatalogSortDirection
+) {
+  const normalizedDirection = direction.toUpperCase()
+
+  switch (sort) {
+    case "stars":
+      return `COALESCE(stars, 0) ${normalizedDirection}, LOWER(display_name) ASC, package_key ASC`
+    case "tags":
+      return `LOWER(tags_sort_value) ${normalizedDirection}, LOWER(display_name) ASC, package_key ASC`
+    case "name":
+    default:
+      return `LOWER(display_name) ${normalizedDirection}, package_key ASC`
   }
 }
 
