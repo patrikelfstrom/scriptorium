@@ -9,6 +9,30 @@ scriptorium is a searchable frontend tooling catalog built as:
 
 The production target is Cloudflare Pages for the frontend plus a separate Cloudflare Worker for `/api/search` and `/api/tags`, with Turso as the source of truth.
 
+## Deployment
+
+GitHub Actions validates every push and pull request.
+Production deployment should be handled from Cloudflare:
+
+- Cloudflare Pages for the frontend bundle in `dist/`
+- Cloudflare Workers for the API defined in `wrangler.toml`
+
+Recommended setup:
+
+- Connect the Pages project to this GitHub repository in Cloudflare
+- Connect the Worker to this GitHub repository with Workers Builds in Cloudflare
+- Keep GitHub Actions as validation-only CI
+
+Set `VITE_API_BASE_URL` in the Cloudflare Pages build environment only if production uses a separate API hostname.
+Leave it unset if Cloudflare routes the frontend and API under the same origin and the browser should call `/api/*` directly.
+
+Set these secrets in the Cloudflare Worker runtime, not in GitHub Actions:
+
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
+
+The scheduled catalog refresh workflow still reads Turso directly from GitHub Actions, so keep `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` configured as GitHub repository secrets for that job as well.
+
 ## Local development
 
 Install dependencies with `pnpm install`.
