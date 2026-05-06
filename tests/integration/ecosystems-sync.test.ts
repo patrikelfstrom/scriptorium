@@ -83,14 +83,14 @@ describe("ecosyste.ms popular sync", () => {
       ).toEqual([
         {
           page: "1",
-          perPage: "400",
+          perPage: "100",
           sort: "downloads",
           order: "desc",
           updatedAfter: "2025-01-01T00:00:00.000Z",
         },
         {
           page: "2",
-          perPage: "400",
+          perPage: "100",
           sort: "downloads",
           order: "desc",
           updatedAfter: "2025-01-01T00:00:00.000Z",
@@ -360,8 +360,169 @@ describe("ecosyste.ms popular sync", () => {
           userAgent: "scriptorium-test/0.1.1",
         })
       ).rejects.toThrow(
-        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=400&updated_after=2025-01-01T00%3A00%3A00.000Z&sort=downloads&order=desc: 500 Internal Server Error'
+        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=100&updated_after=2025-01-01T00%3A00%3A00.000Z&sort=downloads&order=desc: 500 Internal Server Error'
       )
+    } finally {
+      await database.cleanup()
+    }
+  })
+
+  it("retries transient ecosyste.ms failures before succeeding", async () => {
+    vi.useFakeTimers()
+
+    const database = await createTestCatalogDatabase()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('{"error":"internal server error"}', {
+          status: 500,
+          statusText: "Internal Server Error",
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              name: "react",
+              description: "UI library",
+              homepage: "https://react.dev",
+              registry_url: "https://www.npmjs.com/package/react",
+              repository_url: "https://github.com/facebook/react",
+              latest_release_published_at: "2026-02-14T12:00:00.000Z",
+              downloads: 1000,
+              downloads_period: "last-month",
+              dependent_packages_count: 501,
+              keywords_array: ["react", "ui"],
+              repo_metadata: {
+                full_name: "facebook/react",
+                stargazers_count: 200000,
+                topics: ["react", "ui"],
+              },
+            },
+          ]),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      )
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const resultPromise = syncEcosystemsPopular(database.client, {
+        ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
+        fromAddress: "me@patrikelfstrom.se",
+        syncLimit: 1,
+        updatedAfter: "2025-01-01T00:00:00.000Z",
+        userAgent: "scriptorium-test/0.1.1",
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+      const result = await resultPromise
+
+      expect(result).toEqual({ syncedCount: 1 })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      await database.cleanup()
+    }
+  })
+
+  it("honors Retry-After when retrying rate-limited ecosyste.ms pages", async () => {
+    vi.useFakeTimers()
+
+    const database = await createTestCatalogDatabase()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('{"error":"too many requests"}', {
+          status: 429,
+          statusText: "Too Many Requests",
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": "3",
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            createEcosystemsFixture({
+              name: "react",
+              downloads: 1000,
+              dependentPackagesCount: 501,
+            }),
+          ]),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      )
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const resultPromise = syncEcosystemsPopular(database.client, {
+        ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
+        fromAddress: "me@patrikelfstrom.se",
+        syncLimit: 1,
+        updatedAfter: "2025-01-01T00:00:00.000Z",
+        userAgent: "scriptorium-test/0.1.1",
+      })
+
+      await vi.advanceTimersByTimeAsync(2_999)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await resultPromise
+
+      expect(result).toEqual({ syncedCount: 1 })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      await database.cleanup()
+    }
+  })
+
+  it("retries transient network failures before succeeding", async () => {
+    vi.useFakeTimers()
+
+    const database = await createTestCatalogDatabase()
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            createEcosystemsFixture({
+              name: "react",
+              downloads: 1000,
+              dependentPackagesCount: 501,
+            }),
+          ]),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      )
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const resultPromise = syncEcosystemsPopular(database.client, {
+        ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
+        fromAddress: "me@patrikelfstrom.se",
+        syncLimit: 1,
+        updatedAfter: "2025-01-01T00:00:00.000Z",
+        userAgent: "scriptorium-test/0.1.1",
+      })
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      const result = await resultPromise
+
+      expect(result).toEqual({ syncedCount: 1 })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
     } finally {
       await database.cleanup()
     }

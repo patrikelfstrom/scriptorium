@@ -181,6 +181,15 @@ type EcosystemsPackage = {
   rawJson: string
 }
 
+const ECOSYSTEMS_PAGE_SIZE = 100
+const ECOSYSTEMS_FETCH_MAX_ATTEMPTS = 3
+const ECOSYSTEMS_FETCH_RETRY_DELAY_MS = 1_000
+const ECOSYSTEMS_RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504])
+
+function createEcosystemsRetryDelayMs(attempt: number, retryAfterHeader?: string | null) {
+  return parseRetryAfterDelayMs(retryAfterHeader) ?? ECOSYSTEMS_FETCH_RETRY_DELAY_MS * attempt
+}
+
 function createEcosystemsPackageRecord(
   ecosystemPackage: EcosystemsPackage,
   fetchedAt: string
@@ -210,7 +219,6 @@ function createEcosystemsPackageRecord(
 }
 
 async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOptions) {
-  const pageSize = 400
   const packages: EcosystemsPackage[] = []
 
   for (let page = 1; packages.length < options.syncLimit; page += 1) {
@@ -219,27 +227,16 @@ async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOpti
     )
 
     requestUrl.searchParams.set("page", String(page))
-    requestUrl.searchParams.set("per_page", String(pageSize))
+    requestUrl.searchParams.set("per_page", String(ECOSYSTEMS_PAGE_SIZE))
     requestUrl.searchParams.set("updated_after", options.updatedAfter)
     requestUrl.searchParams.set("sort", "downloads")
     requestUrl.searchParams.set("order", "desc")
 
-    options.onProgress?.(`Fetching ecosyste.ms page ${page} (${pageSize} packages requested).`)
+    options.onProgress?.(
+      `Fetching ecosyste.ms page ${page} (${ECOSYSTEMS_PAGE_SIZE} packages requested).`
+    )
 
-    const response = await fetch(requestUrl, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": options.userAgent,
-        From: options.fromAddress,
-      },
-    })
-
-    if (!response.ok) {
-      const details = await response.text()
-      throw new Error(
-        `Failed to fetch ecosyste.ms packages from ${requestUrl.toString()}: ${response.status} ${response.statusText}\n${details}`
-      )
-    }
+    const response = await fetchEcosystemsPackagesPage(requestUrl, page, options)
 
     const payload = await response.json()
 
@@ -257,12 +254,75 @@ async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOpti
       `Fetched ecosyste.ms page ${page}; accumulated ${packages.length}/${options.syncLimit} packages.`
     )
 
-    if (payload.length < pageSize) {
+    if (payload.length < ECOSYSTEMS_PAGE_SIZE) {
       break
     }
   }
 
   return packages.slice(0, options.syncLimit)
+}
+
+async function fetchEcosystemsPackagesPage(
+  requestUrl: URL,
+  page: number,
+  options: SyncEcosystemsPopularOptions
+) {
+  for (let attempt = 1; attempt <= ECOSYSTEMS_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    let response: Response
+
+    try {
+      response = await fetch(requestUrl, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": options.userAgent,
+          From: options.fromAddress,
+        },
+      })
+    } catch (error) {
+      if (attempt < ECOSYSTEMS_FETCH_MAX_ATTEMPTS) {
+        const retryDelayMs = createEcosystemsRetryDelayMs(attempt)
+        const reason = error instanceof Error ? error.message : String(error)
+
+        options.onProgress?.(
+          `Retrying ecosyste.ms page ${page} after network error (attempt ${attempt + 1}/${ECOSYSTEMS_FETCH_MAX_ATTEMPTS}) in ${retryDelayMs}ms: ${reason}`
+        )
+        await delay(retryDelayMs)
+        continue
+      }
+
+      throw error
+    }
+
+    if (response.ok) {
+      return response
+    }
+
+    const details = await response.text()
+    const error = new Error(
+      `Failed to fetch ecosyste.ms packages from ${requestUrl.toString()}: ${response.status} ${response.statusText}\n${details}`
+    )
+
+    if (
+      attempt < ECOSYSTEMS_FETCH_MAX_ATTEMPTS &&
+      ECOSYSTEMS_RETRYABLE_STATUS_CODES.has(response.status)
+    ) {
+      const retryDelayMs = createEcosystemsRetryDelayMs(
+        attempt,
+        response.headers.get("Retry-After")
+      )
+      options.onProgress?.(
+        `Retrying ecosyste.ms page ${page} after ${response.status} ${response.statusText} (attempt ${attempt + 1}/${ECOSYSTEMS_FETCH_MAX_ATTEMPTS}) in ${retryDelayMs}ms.`
+      )
+      await delay(retryDelayMs)
+      continue
+    }
+
+    throw error
+  }
+
+  throw new Error(
+    `Failed to fetch ecosyste.ms packages from ${requestUrl.toString()}: exhausted retry attempts.`
+  )
 }
 
 function normalizeEcosystemsPackage(entry: unknown) {
@@ -456,6 +516,39 @@ function chunkValues<T>(values: T[], size: number) {
   }
 
   return chunks
+}
+
+function delay(durationMs: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, durationMs)
+  })
+}
+
+function parseRetryAfterDelayMs(value: string | null | undefined) {
+  if (!value) {
+    return undefined
+  }
+
+  const trimmedValue = value.trim()
+
+  if (!trimmedValue) {
+    return undefined
+  }
+
+  const retryAfterSeconds = Number.parseInt(trimmedValue, 10)
+
+  if (Number.isInteger(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return retryAfterSeconds * 1_000
+  }
+
+  const retryAfterAt = new Date(trimmedValue)
+
+  if (Number.isNaN(retryAfterAt.getTime())) {
+    return undefined
+  }
+
+  const retryDelayMs = retryAfterAt.getTime() - Date.now()
+  return retryDelayMs > 0 ? retryDelayMs : undefined
 }
 
 function normalizeInteger(value: unknown) {
