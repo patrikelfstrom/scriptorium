@@ -339,6 +339,8 @@ describe("ecosyste.ms popular sync", () => {
   })
 
   it("includes the failing ecosyste.ms request URL in fetch errors", async () => {
+    vi.useFakeTimers()
+
     const database = await createTestCatalogDatabase()
     const fetchMock = vi.fn(async () =>
       new Response('{"error":"internal server error"}', {
@@ -351,66 +353,6 @@ describe("ecosyste.ms popular sync", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     try {
-      await expect(
-        syncEcosystemsPopular(database.client, {
-          ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-          fromAddress: "me@patrikelfstrom.se",
-          syncLimit: 1,
-          updatedAfter: "2025-01-01T00:00:00.000Z",
-          userAgent: "scriptorium-test/0.1.1",
-        })
-      ).rejects.toThrow(
-        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=10&updated_after=2025-01-01T00%3A00%3A00.000Z&sort=downloads&order=desc: 500 Internal Server Error\n{"error":"internal server error"}'
-      )
-    } finally {
-      await database.cleanup()
-    }
-  })
-
-  it("retries transient ecosyste.ms failures before succeeding", async () => {
-    vi.useFakeTimers()
-
-    const database = await createTestCatalogDatabase()
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response('{"error":"internal server error"}', {
-          status: 500,
-          statusText: "Internal Server Error",
-          headers: { "Content-Type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify([
-            {
-              name: "react",
-              description: "UI library",
-              homepage: "https://react.dev",
-              registry_url: "https://www.npmjs.com/package/react",
-              repository_url: "https://github.com/facebook/react",
-              latest_release_published_at: "2026-02-14T12:00:00.000Z",
-              downloads: 1000,
-              downloads_period: "last-month",
-              dependent_packages_count: 501,
-              keywords_array: ["react", "ui"],
-              repo_metadata: {
-                full_name: "facebook/react",
-                stargazers_count: 200000,
-                topics: ["react", "ui"],
-              },
-            },
-          ]),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }
-        )
-      )
-
-    vi.stubGlobal("fetch", fetchMock)
-
-    try {
       const resultPromise = syncEcosystemsPopular(database.client, {
         ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
         fromAddress: "me@patrikelfstrom.se",
@@ -418,11 +360,160 @@ describe("ecosyste.ms popular sync", () => {
         updatedAfter: "2025-01-01T00:00:00.000Z",
         userAgent: "scriptorium-test/0.1.1",
       })
-      await vi.advanceTimersByTimeAsync(1_000)
+      const rejection = expect(resultPromise).rejects.toThrow(
+        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=10&updated_after=2025-01-01T00%3A00%3A00.000Z&sort=downloads&order=desc: 500 Internal Server Error\n{"error":"internal server error"}'
+      )
+
+      await vi.runAllTimersAsync()
+
+      await rejection
+      expect(fetchMock).toHaveBeenCalledTimes(4)
+    } finally {
+      await database.cleanup()
+    }
+  })
+
+  it("waits 30 seconds before retrying a 500 page while continuing with later pages", async () => {
+    vi.useFakeTimers()
+
+    const database = await createTestCatalogDatabase()
+    const requestPages: string[] = []
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async (input: string | URL | Request) => {
+        const url = new URL(String(input))
+        const page = url.searchParams.get("page")
+
+        requestPages.push(page ?? "")
+
+        if (page === "1" && requestPages.filter((value) => value === "1").length === 1) {
+          return new Response('{"error":"internal server error"}', {
+            status: 500,
+            statusText: "Internal Server Error",
+            headers: { "Content-Type": "application/json" },
+          })
+        }
+
+        if (page === "1") {
+          return jsonResponse([
+            createEcosystemsFixture({
+              name: "react",
+              downloads: 1000,
+              dependentPackagesCount: 501,
+            }),
+          ])
+        }
+
+        if (page === "2") {
+          return jsonResponse([
+            createEcosystemsFixture({
+              name: "vue",
+              downloads: 900,
+              dependentPackagesCount: 501,
+            }),
+          ])
+        }
+
+        throw new Error(`Unexpected fetch URL: ${url.toString()}`)
+      })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const resultPromise = syncEcosystemsPopular(database.client, {
+        ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
+        fromAddress: "me@patrikelfstrom.se",
+        syncLimit: 2,
+        updatedAfter: "2025-01-01T00:00:00.000Z",
+        userAgent: "scriptorium-test/0.1.1",
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(requestPages).toEqual(["1", "2"])
+
+      await vi.advanceTimersByTimeAsync(29_999)
+      expect(requestPages).toEqual(["1", "2"])
+
+      await vi.advanceTimersByTimeAsync(1)
       const result = await resultPromise
 
-      expect(result).toEqual({ syncedCount: 1 })
-      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(result).toEqual({ syncedCount: 2 })
+      expect(requestPages).toEqual(["1", "2", "1"])
+    } finally {
+      await database.cleanup()
+    }
+  })
+
+  it("waits 60 seconds after a second 500 and retries a third 500 page after the main pass", async () => {
+    vi.useFakeTimers()
+
+    const database = await createTestCatalogDatabase()
+    const requestPages: string[] = []
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input))
+      const page = url.searchParams.get("page")
+
+      requestPages.push(page ?? "")
+
+      if (page === "1") {
+        const pageOneAttempt = requestPages.filter((value) => value === "1").length
+
+        if (pageOneAttempt <= 3) {
+          return new Response('{"error":"internal server error"}', {
+            status: 500,
+            statusText: "Internal Server Error",
+            headers: { "Content-Type": "application/json" },
+          })
+        }
+
+        return jsonResponse([
+          createEcosystemsFixture({
+            name: "react",
+            downloads: 1000,
+            dependentPackagesCount: 501,
+          }),
+        ])
+      }
+
+      if (page === "2") {
+        return jsonResponse([
+          createEcosystemsFixture({
+            name: "vue",
+            downloads: 900,
+            dependentPackagesCount: 501,
+          }),
+        ])
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url.toString()}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const resultPromise = syncEcosystemsPopular(database.client, {
+        ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
+        fromAddress: "me@patrikelfstrom.se",
+        syncLimit: 2,
+        updatedAfter: "2025-01-01T00:00:00.000Z",
+        userAgent: "scriptorium-test/0.1.1",
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(requestPages).toEqual(["1", "2"])
+
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(requestPages).toEqual(["1", "2", "1"])
+
+      await vi.advanceTimersByTimeAsync(59_999)
+      expect(requestPages).toEqual(["1", "2", "1"])
+
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await resultPromise
+
+      expect(result).toEqual({ syncedCount: 2 })
+      expect(requestPages).toEqual(["1", "2", "1", "1", "1"])
+      expect(fetchMock).toHaveBeenCalledTimes(5)
     } finally {
       await database.cleanup()
     }
@@ -479,6 +570,89 @@ describe("ecosyste.ms popular sync", () => {
 
       expect(result).toEqual({ syncedCount: 1 })
       expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      await database.cleanup()
+    }
+  })
+
+  it("logs rate limit headers and pauses when remaining budget is low", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-04-03T00:00:00.000Z"))
+
+    const database = await createTestCatalogDatabase()
+    const requestPages: string[] = []
+    const progressMessages: string[] = []
+    const resetAtSeconds = Math.floor((Date.now() + 10_000) / 1_000)
+    const pageOnePackages = Array.from({ length: 10 }, (_, index) =>
+      createEcosystemsFixture({
+        name: `pkg-${index + 1}`,
+        downloads: 1000 - index,
+        dependentPackagesCount: 501,
+      })
+    )
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input))
+      const page = url.searchParams.get("page")
+
+      requestPages.push(page ?? "")
+
+      if (page === "1") {
+        return new Response(JSON.stringify(pageOnePackages), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "x-ratelimit-tier": "polite",
+            "x-ratelimit-limit": "60",
+            "x-ratelimit-remaining": "2",
+            "x-ratelimit-reset": String(resetAtSeconds),
+          },
+        })
+      }
+
+      if (page === "2") {
+        return jsonResponse([
+          createEcosystemsFixture({
+            name: "final-package",
+            downloads: 999,
+            dependentPackagesCount: 501,
+          }),
+        ])
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url.toString()}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const resultPromise = syncEcosystemsPopular(database.client, {
+        ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
+        fromAddress: "me@patrikelfstrom.se",
+        onProgress: (message) => {
+          progressMessages.push(message)
+        },
+        syncLimit: 11,
+        updatedAfter: "2025-01-01T00:00:00.000Z",
+        userAgent: "scriptorium-test/0.1.1",
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(requestPages).toEqual(["1"])
+      expect(progressMessages).toContain(
+        "ecosyste.ms rate limit: tier polite, remaining 2/60, resets in 10000ms."
+      )
+
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(requestPages).toEqual(["1"])
+
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await resultPromise
+
+      expect(result).toEqual({ syncedCount: 11 })
+      expect(requestPages).toEqual(["1", "2"])
+      expect(progressMessages).toContain(
+        "Waiting 10000ms for ecosyste.ms rate limit recovery before requesting page 2."
+      )
     } finally {
       await database.cleanup()
     }
