@@ -83,14 +83,14 @@ describe("ecosyste.ms popular sync", () => {
       ).toEqual([
         {
           page: "1",
-          perPage: "100",
+          perPage: "50",
           sort: "downloads",
           order: "desc",
           updatedAfter: "2025-01-01T00:00:00.000Z",
         },
         {
           page: "2",
-          perPage: "100",
+          perPage: "50",
           sort: "downloads",
           order: "desc",
           updatedAfter: "2025-01-01T00:00:00.000Z",
@@ -360,7 +360,7 @@ describe("ecosyste.ms popular sync", () => {
           userAgent: "scriptorium-test/0.1.1",
         })
       ).rejects.toThrow(
-        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=100&updated_after=2025-01-01T00%3A00%3A00.000Z&sort=downloads&order=desc: 500 Internal Server Error'
+        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=50&updated_after=2025-01-01T00%3A00%3A00.000Z&sort=downloads&order=desc: 500 Internal Server Error'
       )
     } finally {
       await database.cleanup()
