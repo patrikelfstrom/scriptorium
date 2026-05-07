@@ -107,6 +107,7 @@ pnpm build:worker
 - `TURSO_DATABASE_URL`: Turso/libSQL database URL for the worker and sync scripts
 - `TURSO_AUTH_TOKEN`: Turso auth token when using remote Turso
 - `ECOSYSTEMS_BASE_URL`: optional ecosyste.ms API override, defaults to `https://packages.ecosyste.ms/api/v1`
+- `ECOSYSTEMS_PAGE_SIZE`: optional ecosyste.ms page size for sync requests, defaults to `25`
 - `ECOSYSTEMS_SYNC_LIMIT`: optional total number of ecosyste.ms npm packages to sync, defaults to `1000`
 - `SCRIPTORIUM_USER_AGENT`: optional user agent for ecosyste.ms sync
 - `SCRIPTORIUM_DATA_DIR`: optional local fallback database directory

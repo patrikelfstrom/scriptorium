@@ -13,7 +13,7 @@ import {
   createUpsertPackageStatement,
 } from "./package-store"
 
-const ECOSYSTEMS_PAGE_SIZE = 10
+const DEFAULT_ECOSYSTEMS_PAGE_SIZE = 25
 const ECOSYSTEMS_FETCH_MAX_ATTEMPTS = 3
 const ECOSYSTEMS_FETCH_RETRY_DELAY_MS = 1_000
 const ECOSYSTEMS_INTERNAL_SERVER_ERROR_DELAY_MS = [30_000, 60_000] as const
@@ -162,6 +162,7 @@ export async function syncEcosystemsPopular(
 
 async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOptions) {
   const queue = new PQueue({ concurrency: 1 })
+  const pageSize = getEcosystemsPageSize(options)
   const packagesByPage = new Map<number, EcosystemsPackage[]>()
   const retryAfterSweepPages = new Set<number>()
   const scheduledOperations = new Set<Promise<void>>()
@@ -283,28 +284,33 @@ async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOpti
         }
 
         options.onProgress?.(
-          `Fetching ecosyste.ms page ${task.page} (${ECOSYSTEMS_PAGE_SIZE} packages requested).`
+          `Fetching ecosyste.ms page ${task.page} (${pageSize} packages requested).`
         )
         const fetchStartedAt = Date.now()
 
-        const result = await fetchAndNormalizeEcosystemsPackagesPage(task.page, options, {
-          mode: task.mode === "final-pass" ? "fail-500" : "defer-500",
-          internalServerErrorCount: task.internalServerErrorCount,
-          onRateLimitStatus: (rateLimitStatus) => {
-            options.onProgress?.(formatEcosystemsRateLimitStatus(rateLimitStatus))
+        const result = await fetchAndNormalizeEcosystemsPackagesPage(
+          task.page,
+          options,
+          pageSize,
+          {
+            mode: task.mode === "final-pass" ? "fail-500" : "defer-500",
+            internalServerErrorCount: task.internalServerErrorCount,
+            onRateLimitStatus: (rateLimitStatus) => {
+              options.onProgress?.(formatEcosystemsRateLimitStatus(rateLimitStatus))
 
-            const throttleDelayMs = createEcosystemsRateLimitThrottleDelayMs(
-              rateLimitStatus
-            )
+              const throttleDelayMs = createEcosystemsRateLimitThrottleDelayMs(
+                rateLimitStatus
+              )
 
-            if (throttleDelayMs === undefined) {
-              nextAllowedRequestAtMs = 0
-              return
-            }
+              if (throttleDelayMs === undefined) {
+                nextAllowedRequestAtMs = 0
+                return
+              }
 
-            nextAllowedRequestAtMs = Date.now() + throttleDelayMs
-          },
-        })
+              nextAllowedRequestAtMs = Date.now() + throttleDelayMs
+            },
+          }
+        )
 
         if (result.kind === "success") {
           storePackages(
@@ -313,7 +319,7 @@ async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOpti
             Date.now() - fetchStartedAt
           )
 
-          if (result.payloadLength < ECOSYSTEMS_PAGE_SIZE) {
+          if (result.payloadLength < pageSize) {
             finalPage = finalPage === null ? task.page : Math.min(finalPage, task.page)
           }
 
@@ -381,13 +387,14 @@ async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOpti
 async function fetchAndNormalizeEcosystemsPackagesPage(
   page: number,
   options: SyncEcosystemsPopularOptions,
+  pageSize: number,
   requestBehavior: {
     mode: FetchEcosystemsPackagesPageMode
     internalServerErrorCount: number
     onRateLimitStatus?: (rateLimitStatus: EcosystemsRateLimitStatus) => void
   }
 ): Promise<FetchAndNormalizeEcosystemsPackagesPageResult> {
-  const requestUrl = createEcosystemsPackagesRequestUrl(options, page)
+  const requestUrl = createEcosystemsPackagesRequestUrl(options, page, pageSize)
   const result = await fetchEcosystemsPackagesPage(requestUrl, page, options, requestBehavior)
 
   if (result.kind !== "response") {
@@ -548,20 +555,25 @@ async function fetchEcosystemsPackagesPage(
 
 function createEcosystemsPackagesRequestUrl(
   options: SyncEcosystemsPopularOptions,
-  page: number
+  page: number,
+  pageSize: number
 ) {
   const requestUrl = new URL(
     `${stripTrailingSlash(options.ecosystemsBaseUrl)}/registries/npmjs.org/packages`
   )
 
   requestUrl.searchParams.set("page", String(page))
-  requestUrl.searchParams.set("per_page", String(ECOSYSTEMS_PAGE_SIZE))
+  requestUrl.searchParams.set("per_page", String(pageSize))
   requestUrl.searchParams.set("updated_after", options.updatedAfter)
   requestUrl.searchParams.set("mailto", options.fromAddress)
   requestUrl.searchParams.set("sort", "downloads")
   requestUrl.searchParams.set("order", "desc")
 
   return requestUrl
+}
+
+function getEcosystemsPageSize(options: SyncEcosystemsPopularOptions) {
+  return options.pageSize ?? DEFAULT_ECOSYSTEMS_PAGE_SIZE
 }
 
 function shouldFetchAnotherEcosystemsPage(

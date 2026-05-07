@@ -84,7 +84,7 @@ describe("ecosyste.ms popular sync", () => {
       ).toEqual([
         {
           page: "1",
-          perPage: "10",
+          perPage: "25",
           mailto: "info@scriptorium.dev",
           sort: "downloads",
           order: "desc",
@@ -92,7 +92,7 @@ describe("ecosyste.ms popular sync", () => {
         },
         {
           page: "2",
-          perPage: "10",
+          perPage: "25",
           mailto: "info@scriptorium.dev",
           sort: "downloads",
           order: "desc",
@@ -364,7 +364,7 @@ describe("ecosyste.ms popular sync", () => {
         userAgent: "scriptorium-test/0.1.1",
       })
       const rejection = expect(resultPromise).rejects.toThrow(
-        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=10&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error\n{"error":"internal server error"}'
+        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=25&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error\n{"error":"internal server error"}'
       )
 
       await vi.runAllTimersAsync()
@@ -634,6 +634,7 @@ describe("ecosyste.ms popular sync", () => {
         onProgress: (message) => {
           progressMessages.push(message)
         },
+        pageSize: 10,
         syncLimit: 11,
         updatedAfter: "2025-01-01T00:00:00.000Z",
         userAgent: "scriptorium-test/0.1.1",

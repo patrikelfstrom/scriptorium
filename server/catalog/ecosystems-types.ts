@@ -2,6 +2,7 @@ export type SyncEcosystemsPopularOptions = {
   ecosystemsBaseUrl: string
   fromAddress: string
   onProgress?: (message: string) => void
+  pageSize?: number
   syncLimit: number
   updatedAfter: string
   userAgent: string
