@@ -557,6 +557,7 @@ function createEcosystemsPackagesRequestUrl(
   requestUrl.searchParams.set("page", String(page))
   requestUrl.searchParams.set("per_page", String(ECOSYSTEMS_PAGE_SIZE))
   requestUrl.searchParams.set("updated_after", options.updatedAfter)
+  requestUrl.searchParams.set("mailto", options.fromAddress)
   requestUrl.searchParams.set("sort", "downloads")
   requestUrl.searchParams.set("order", "desc")
 

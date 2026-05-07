@@ -64,7 +64,7 @@ describe("ecosyste.ms popular sync", () => {
     try {
       const result = await syncEcosystemsPopular(database.client, {
         ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-        fromAddress: "me@patrikelfstrom.se",
+        fromAddress: "info@scriptorium.dev",
         syncLimit: 401,
         updatedAfter: "2025-01-01T00:00:00.000Z",
         userAgent: "scriptorium-test/0.1.1",
@@ -76,6 +76,7 @@ describe("ecosyste.ms popular sync", () => {
         requestCalls.map(({ url }) => ({
           page: url.searchParams.get("page"),
           perPage: url.searchParams.get("per_page"),
+          mailto: url.searchParams.get("mailto"),
           sort: url.searchParams.get("sort"),
           order: url.searchParams.get("order"),
           updatedAfter: url.searchParams.get("updated_after"),
@@ -84,6 +85,7 @@ describe("ecosyste.ms popular sync", () => {
         {
           page: "1",
           perPage: "10",
+          mailto: "info@scriptorium.dev",
           sort: "downloads",
           order: "desc",
           updatedAfter: "2025-01-01T00:00:00.000Z",
@@ -91,6 +93,7 @@ describe("ecosyste.ms popular sync", () => {
         {
           page: "2",
           perPage: "10",
+          mailto: "info@scriptorium.dev",
           sort: "downloads",
           order: "desc",
           updatedAfter: "2025-01-01T00:00:00.000Z",
@@ -98,7 +101,7 @@ describe("ecosyste.ms popular sync", () => {
       ])
       expect(requestCalls[0]?.headers.get("Accept")).toBe("application/json")
       expect(requestCalls[0]?.headers.get("User-Agent")).toBe("scriptorium-test/0.1.1")
-      expect(requestCalls[0]?.headers.get("From")).toBe("me@patrikelfstrom.se")
+      expect(requestCalls[0]?.headers.get("From")).toBe("info@scriptorium.dev")
 
       const packageRows = await database.client.execute({
         sql: `
@@ -179,7 +182,7 @@ describe("ecosyste.ms popular sync", () => {
     try {
       const result = await syncEcosystemsPopular(database.client, {
         ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-        fromAddress: "me@patrikelfstrom.se",
+        fromAddress: "info@scriptorium.dev",
         syncLimit: 1,
         updatedAfter: "2025-01-01T00:00:00.000Z",
         userAgent: "scriptorium-test/0.1.1",
@@ -259,7 +262,7 @@ describe("ecosyste.ms popular sync", () => {
     try {
       const result = await syncEcosystemsPopular(database.client, {
         ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-        fromAddress: "me@patrikelfstrom.se",
+        fromAddress: "info@scriptorium.dev",
         syncLimit: 10,
         updatedAfter: "2025-01-01T00:00:00.000Z",
         userAgent: "scriptorium-test/0.1.1",
@@ -355,13 +358,13 @@ describe("ecosyste.ms popular sync", () => {
     try {
       const resultPromise = syncEcosystemsPopular(database.client, {
         ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-        fromAddress: "me@patrikelfstrom.se",
+        fromAddress: "info@scriptorium.dev",
         syncLimit: 1,
         updatedAfter: "2025-01-01T00:00:00.000Z",
         userAgent: "scriptorium-test/0.1.1",
       })
       const rejection = expect(resultPromise).rejects.toThrow(
-        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=10&updated_after=2025-01-01T00%3A00%3A00.000Z&sort=downloads&order=desc: 500 Internal Server Error\n{"error":"internal server error"}'
+        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=10&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error\n{"error":"internal server error"}'
       )
 
       await vi.runAllTimersAsync()
@@ -422,7 +425,7 @@ describe("ecosyste.ms popular sync", () => {
     try {
       const resultPromise = syncEcosystemsPopular(database.client, {
         ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-        fromAddress: "me@patrikelfstrom.se",
+        fromAddress: "info@scriptorium.dev",
         syncLimit: 2,
         updatedAfter: "2025-01-01T00:00:00.000Z",
         userAgent: "scriptorium-test/0.1.1",
@@ -493,7 +496,7 @@ describe("ecosyste.ms popular sync", () => {
     try {
       const resultPromise = syncEcosystemsPopular(database.client, {
         ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-        fromAddress: "me@patrikelfstrom.se",
+        fromAddress: "info@scriptorium.dev",
         syncLimit: 2,
         updatedAfter: "2025-01-01T00:00:00.000Z",
         userAgent: "scriptorium-test/0.1.1",
@@ -556,7 +559,7 @@ describe("ecosyste.ms popular sync", () => {
     try {
       const resultPromise = syncEcosystemsPopular(database.client, {
         ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-        fromAddress: "me@patrikelfstrom.se",
+        fromAddress: "info@scriptorium.dev",
         syncLimit: 1,
         updatedAfter: "2025-01-01T00:00:00.000Z",
         userAgent: "scriptorium-test/0.1.1",
@@ -627,7 +630,7 @@ describe("ecosyste.ms popular sync", () => {
     try {
       const resultPromise = syncEcosystemsPopular(database.client, {
         ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-        fromAddress: "me@patrikelfstrom.se",
+        fromAddress: "info@scriptorium.dev",
         onProgress: (message) => {
           progressMessages.push(message)
         },
@@ -686,7 +689,7 @@ describe("ecosyste.ms popular sync", () => {
     try {
       const resultPromise = syncEcosystemsPopular(database.client, {
         ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-        fromAddress: "me@patrikelfstrom.se",
+        fromAddress: "info@scriptorium.dev",
         syncLimit: 1,
         updatedAfter: "2025-01-01T00:00:00.000Z",
         userAgent: "scriptorium-test/0.1.1",
