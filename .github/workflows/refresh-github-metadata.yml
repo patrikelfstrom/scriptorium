@@ -39,12 +39,13 @@ jobs:
 
       - name: Refresh ecosyste.ms package data
         env:
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          ECOSYSTEMS_SYNC_LIMIT: 450
+          TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: pnpm sync:ecosystems-popular
 
       - name: Prune stale ecosyste.ms packages
         env:
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: pnpm prune:ecosystems-packages
