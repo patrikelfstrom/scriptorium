@@ -13,10 +13,10 @@ import {
   createUpsertPackageStatement,
 } from "./package-store"
 
-const DEFAULT_ECOSYSTEMS_PAGE_SIZE = 25
+const DEFAULT_ECOSYSTEMS_PAGE_SIZE = 50
 const ECOSYSTEMS_FETCH_MAX_ATTEMPTS = 3
 const ECOSYSTEMS_FETCH_RETRY_DELAY_MS = 1_000
-const ECOSYSTEMS_INTERNAL_SERVER_ERROR_DELAY_MS = [30_000, 60_000] as const
+const ECOSYSTEMS_INTERNAL_SERVER_ERROR_DELAY_MS = [10_000, 20_000] as const
 const ECOSYSTEMS_INTERNAL_SERVER_ERROR_STATUS = 500
 const ECOSYSTEMS_RETRYABLE_STATUS_CODES = new Set([429, 502, 503, 504])
 const ECOSYSTEMS_RATE_LIMIT_LOW_REMAINING_THRESHOLD = 10
@@ -103,64 +103,70 @@ export async function syncEcosystemsPopular(
   client: CatalogDatabaseClient,
   options: SyncEcosystemsPopularOptions
 ) {
-  options.onProgress?.(
-    `Fetching ecosyste.ms npm packages for up to ${options.syncLimit} packages.`
-  )
-  const packages = await fetchEcosystemsPopularPackages(options)
-  const selectedPackages = packages.slice(0, options.syncLimit)
   const fetchedAt = new Date().toISOString()
-
-  options.onProgress?.(
-    `Fetched ${selectedPackages.length} ecosyste.ms packages. Writing package records...`
-  )
-
   const writeBatchSize = 25
   const progressIntervalMs = 60_000
   let lastWriteProgressAt = Date.now()
+  let storedCount = 0
 
-  for (let index = 0; index < selectedPackages.length; index += writeBatchSize) {
-    const batch = selectedPackages.slice(index, index + writeBatchSize)
-    const statements = batch.flatMap((ecosystemPackage) => {
-      const packageRecord = createEcosystemsPackageRecord(ecosystemPackage, fetchedAt)
+  options.onProgress?.(
+    `Fetching ecosyste.ms npm packages for up to ${options.syncLimit} packages.`
+  )
 
-      return [
-        createUpsertRawEcosystemsPackageStatement(ecosystemPackage, fetchedAt),
-        createUpsertPackageStatement(packageRecord),
-        ...createReplacePackageTagsStatements(
-          packageRecord.packageKey,
-          "npm",
-          ecosystemPackage.npmTags
-        ),
-        ...createReplacePackageTagsStatements(
-          packageRecord.packageKey,
-          "github",
-          ecosystemPackage.githubTags
-        ),
-      ]
-    })
+  await fetchEcosystemsPopularPackages(options, async (pagePackages) => {
+    const remainingCapacity = options.syncLimit - storedCount
 
-    await client.batch(statements, "write")
+    if (remainingCapacity <= 0) {
+      return
+    }
 
-    const storedCount = Math.min(index + writeBatchSize, selectedPackages.length)
+    const packagesToStore = pagePackages.slice(0, remainingCapacity)
+
+    for (let index = 0; index < packagesToStore.length; index += writeBatchSize) {
+      const batch = packagesToStore.slice(index, index + writeBatchSize)
+      const statements = batch.flatMap((ecosystemPackage) => {
+        const packageRecord = createEcosystemsPackageRecord(ecosystemPackage, fetchedAt)
+
+        return [
+          createUpsertRawEcosystemsPackageStatement(ecosystemPackage, fetchedAt),
+          createUpsertPackageStatement(packageRecord),
+          ...createReplacePackageTagsStatements(
+            packageRecord.packageKey,
+            "npm",
+            ecosystemPackage.npmTags
+          ),
+          ...createReplacePackageTagsStatements(
+            packageRecord.packageKey,
+            "github",
+            ecosystemPackage.githubTags
+          ),
+        ]
+      })
+
+      await client.batch(statements, "write")
+    }
+
+    storedCount += packagesToStore.length
+
     const now = Date.now()
 
-    if (
-      now - lastWriteProgressAt >= progressIntervalMs ||
-      storedCount === selectedPackages.length
-    ) {
-      options.onProgress?.(
-        `Stored ${storedCount}/${selectedPackages.length} ecosyste.ms packages.`
-      )
+    if (now - lastWriteProgressAt >= progressIntervalMs || storedCount === options.syncLimit) {
+      options.onProgress?.(`Stored ${storedCount}/${options.syncLimit} ecosyste.ms packages.`)
       lastWriteProgressAt = now
     }
-  }
+  })
+
+  options.onProgress?.(`Stored ${storedCount} ecosyste.ms packages total.`)
 
   return {
-    syncedCount: selectedPackages.length,
+    syncedCount: storedCount,
   }
 }
 
-async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOptions) {
+async function fetchEcosystemsPopularPackages(
+  options: SyncEcosystemsPopularOptions,
+  onPageFetched?: (pagePackages: EcosystemsPackage[], page: number) => Promise<void> | void
+) {
   const queue = new PQueue({ concurrency: 1 })
   const pageSize = getEcosystemsPageSize(options)
   const packagesByPage = new Map<number, EcosystemsPackage[]>()
@@ -176,7 +182,7 @@ async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOpti
   let finalPassScheduled = false
   let firstError: unknown
 
-  const storePackages = (
+  const storePackages = async (
     page: number,
     pagePackages: EcosystemsPackage[],
     fetchDurationMs: number
@@ -190,6 +196,8 @@ async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOpti
     options.onProgress?.(
       `Fetched ecosyste.ms page ${page} in ${fetchDurationMs}ms; accumulated ${accumulatedCount}/${options.syncLimit} packages.`
     )
+
+    await onPageFetched?.(pagePackages, page)
   }
 
   const maybeScheduleNextInitialPage = () => {
@@ -313,7 +321,7 @@ async function fetchEcosystemsPopularPackages(options: SyncEcosystemsPopularOpti
         )
 
         if (result.kind === "success") {
-          storePackages(
+          await storePackages(
             task.page,
             result.normalizedEntries,
             Date.now() - fetchStartedAt

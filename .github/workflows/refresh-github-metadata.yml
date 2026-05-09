@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -39,7 +39,8 @@ jobs:
 
       - name: Refresh ecosyste.ms package data
         env:
-          ECOSYSTEMS_SYNC_LIMIT: 450
+          ECOSYSTEMS_PAGE_SIZE: 50
+          ECOSYSTEMS_SYNC_LIMIT: 300
           TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: pnpm sync:ecosystems-popular
