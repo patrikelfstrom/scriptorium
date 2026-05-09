@@ -4,41 +4,24 @@ import type { CatalogDatabaseClient } from "./database"
 import { createTagLabel, normalizeTagValue } from "./tag-normalization"
 
 export type CatalogPackageRecord = {
-  packageKey: string
-  sourceType: string
-  sourceName: string
-  displayName: string
-  searchName: string
-  description: string | null
+  packageName: string
+  repositoryUrl: string | null
+  packageUrl: string
+  packageDescription: string | null
   homepageUrl: string | null
-  primaryUrl: string | null
-  repositoryName: string | null
-  npmPackageName: string | null
-  publishedAt: string | null
-  stars: number | null
-  downloads: number
-  downloadsPeriod: string | null
-  dependentPackagesCount: number
-  rawEcosystemsFetchedAt: string
-  npmSyncedAt: string | null
-  githubSyncedAt: string | null
-  isActive: number
+  repositoryStars: number | null
+  packageDownloads: number
+  packageDownloadsPeriod: string | null
+  packageLastPublishedAt: string | null
+  lastSyncedAt: string
+  preserveRepositoryUrlOnNull?: boolean
+  preservePackageDescriptionOnNull?: boolean
+  preserveHomepageUrlOnNull?: boolean
+  preserveRepositoryStarsOnNull?: boolean
 }
 
-export function createPackageKey(sourceType: string, sourceName: string) {
-  return `${sourceType}:${sourceName}`
-}
-
-export function createPrimaryUrl(sourceType: string, sourceName: string) {
-  if (sourceType === "npm") {
-    return `https://www.npmjs.com/package/${encodePackageNameForPage(sourceName)}`
-  }
-
-  if (sourceType === "gh") {
-    return `https://github.com/${sourceName}`
-  }
-
-  return null
+export function createPackageUrl(packageName: string) {
+  return `https://www.npmjs.com/package/${encodePackageNameForPage(packageName)}`
 }
 
 export function encodePackageNameForPage(packageName: string) {
@@ -54,12 +37,12 @@ export async function upsertPackage(
 
 export async function replacePackageTags(
   client: CatalogDatabaseClient,
-  packageKey: string,
-  source: string,
+  tableName: "package_tags" | "repository_tags",
+  packageName: string,
   rawTags: string[]
 ) {
   await client.batch(
-    createReplacePackageTagsStatements(packageKey, source, rawTags),
+    createReplaceTagStatements(tableName, packageName, rawTags),
     "write"
   )
 }
@@ -70,81 +53,72 @@ export function createUpsertPackageStatement(
   return {
     sql: `
       INSERT INTO packages (
-        package_key,
-        source_type,
-        source_name,
-        display_name,
-        search_name,
-        description,
+        package_name,
+        repository_url,
+        package_url,
+        package_description,
         homepage_url,
-        primary_url,
-        repository_name,
-        npm_package_name,
-        last_published_at,
-        stars,
-        downloads,
-        downloads_period,
-        dependent_packages_count,
-        raw_ecosystems_fetched_at,
-        npm_synced_at,
-        github_synced_at,
-        is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(package_key) DO UPDATE SET
-        display_name = excluded.display_name,
-        search_name = excluded.search_name,
-        description = COALESCE(excluded.description, packages.description),
-        homepage_url = COALESCE(excluded.homepage_url, packages.homepage_url),
-        primary_url = CASE
-          WHEN excluded.primary_url IS NULL OR excluded.primary_url = ''
-            THEN packages.primary_url
-          ELSE excluded.primary_url
+        repository_stars,
+        package_downloads,
+        package_downloads_period,
+        package_last_published_at,
+        last_synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(package_name) DO UPDATE SET
+        repository_url = CASE
+          WHEN ? = 1 AND excluded.repository_url IS NULL
+            THEN packages.repository_url
+          ELSE excluded.repository_url
         END,
-        repository_name = COALESCE(excluded.repository_name, packages.repository_name),
-        npm_package_name = COALESCE(excluded.npm_package_name, packages.npm_package_name),
-        last_published_at = COALESCE(excluded.last_published_at, packages.last_published_at),
-        stars = COALESCE(excluded.stars, packages.stars),
-        downloads = excluded.downloads,
-        downloads_period = COALESCE(excluded.downloads_period, packages.downloads_period),
-        dependent_packages_count = excluded.dependent_packages_count,
-        raw_ecosystems_fetched_at = excluded.raw_ecosystems_fetched_at,
-        npm_synced_at = COALESCE(excluded.npm_synced_at, packages.npm_synced_at),
-        github_synced_at = COALESCE(excluded.github_synced_at, packages.github_synced_at),
-        is_active = excluded.is_active
+        package_url = excluded.package_url,
+        package_description = CASE
+          WHEN ? = 1 AND excluded.package_description IS NULL
+            THEN packages.package_description
+          ELSE excluded.package_description
+        END,
+        homepage_url = CASE
+          WHEN ? = 1 AND excluded.homepage_url IS NULL
+            THEN packages.homepage_url
+          ELSE excluded.homepage_url
+        END,
+        repository_stars = CASE
+          WHEN ? = 1 AND excluded.repository_stars IS NULL
+            THEN packages.repository_stars
+          ELSE excluded.repository_stars
+        END,
+        package_downloads = excluded.package_downloads,
+        package_downloads_period = excluded.package_downloads_period,
+        package_last_published_at = excluded.package_last_published_at,
+        last_synced_at = excluded.last_synced_at
     `,
     args: [
-      packageRecord.packageKey,
-      packageRecord.sourceType,
-      packageRecord.sourceName,
-      packageRecord.displayName,
-      packageRecord.searchName,
-      packageRecord.description,
+      packageRecord.packageName,
+      packageRecord.repositoryUrl,
+      packageRecord.packageUrl,
+      packageRecord.packageDescription,
       packageRecord.homepageUrl,
-      packageRecord.primaryUrl ?? "",
-      packageRecord.repositoryName,
-      packageRecord.npmPackageName,
-      packageRecord.publishedAt,
-      packageRecord.stars,
-      packageRecord.downloads,
-      packageRecord.downloadsPeriod,
-      packageRecord.dependentPackagesCount,
-      packageRecord.rawEcosystemsFetchedAt,
-      packageRecord.npmSyncedAt,
-      packageRecord.githubSyncedAt,
-      packageRecord.isActive,
+      packageRecord.repositoryStars,
+      packageRecord.packageDownloads,
+      packageRecord.packageDownloadsPeriod,
+      packageRecord.packageLastPublishedAt,
+      packageRecord.lastSyncedAt,
+      packageRecord.preserveRepositoryUrlOnNull ? 1 : 0,
+      packageRecord.preservePackageDescriptionOnNull ? 1 : 0,
+      packageRecord.preserveHomepageUrlOnNull ? 1 : 0,
+      packageRecord.preserveRepositoryStarsOnNull ? 1 : 0,
     ],
   }
 }
 
-export function createReplacePackageTagsStatements(
-  packageKey: string,
-  source: string,
+export function createReplaceTagStatements(
+  tableName: "package_tags" | "repository_tags",
+  packageName: string,
   rawTags: string[]
 ): InStatement[] {
   const statements: InStatement[] = [
     {
-      sql: "DELETE FROM package_tags WHERE package_key = ? AND source = ?",
-      args: [packageKey, source],
+      sql: `DELETE FROM ${tableName} WHERE package_name = ?`,
+      args: [packageName],
     },
   ]
 
@@ -178,10 +152,10 @@ export function createReplacePackageTagsStatements(
 
     statements.push({
       sql: `
-        INSERT OR IGNORE INTO package_tags (package_key, tag_id, source, raw_value)
-        VALUES (?, ?, ?, ?)
+        INSERT OR IGNORE INTO ${tableName} (package_name, tag_id, raw_value)
+        VALUES (?, ?, ?)
       `,
-      args: [packageKey, tagId, source, normalizedRawValue],
+      args: [packageName, tagId, normalizedRawValue],
     })
   }
 

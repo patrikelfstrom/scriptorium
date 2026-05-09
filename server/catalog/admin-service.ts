@@ -1,9 +1,2 @@
-export { syncEcosystemsPopular } from "./ecosystems-sync-service"
-export {
-  backfillLastPublishedAtFromRawEcosystems,
-  pruneEcosystemsPackages,
-} from "./ecosystems-maintenance-service"
-export type {
-  PruneEcosystemsPackagesOptions,
-  SyncEcosystemsPopularOptions,
-} from "./ecosystems-types"
+export { syncNpmCatalog } from "./npm-sync-service"
+export type { SyncNpmCatalogOptions } from "./npm-sync-service"

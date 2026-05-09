@@ -13,11 +13,13 @@
     "build:app": "vite build",
     "build:worker": "wrangler deploy --dry-run --outdir dist-worker",
     "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "prune:ecosystems-packages": "tsx ./scripts/prune-ecosystems-packages.ts",
-    "sync:ecosystems-popular": "tsx ./scripts/sync-ecosystems-popular.ts",
+    "sync:npm-catalog": "tsx ./scripts/sync-npm-catalog.ts",
     "test": "vitest run",
     "typecheck": "tsc -b",
+    "verify": "pnpm lint && pnpm test && pnpm build",
+    "verify:fix": "pnpm lint:fix && pnpm format && pnpm verify",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -30,6 +32,7 @@
     "@tanstack/react-virtual": "^3.13.23",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "download-counts": "^2.20260301.0",
     "lucide-react": "^1.7.0",
     "p-queue": "^9.2.0",
     "p-retry": "^8.0.0",

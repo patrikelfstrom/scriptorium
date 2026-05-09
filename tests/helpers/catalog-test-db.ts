@@ -6,8 +6,7 @@ import { createClient } from "@libsql/client"
 
 import type { CatalogDatabaseClient } from "../../server/catalog/database"
 import {
-  createPackageKey,
-  createPrimaryUrl,
+  createPackageUrl,
   replacePackageTags,
   upsertPackage,
   type CatalogPackageRecord,
@@ -34,49 +33,42 @@ export async function createTestCatalogDatabase() {
 export async function seedCatalogPackage(
   client: CatalogDatabaseClient,
   input: Partial<CatalogPackageRecord> & {
-    packageKey?: string
-    sourceType: string
-    sourceName: string
-    displayName?: string
-    tags?: string[]
-    tagSource?: string
+    packageName: string
+    packageTags?: string[]
+    repositoryTags?: string[]
   }
 ) {
-  const packageKey =
-    input.packageKey ?? createPackageKey(input.sourceType, input.sourceName)
   const record: CatalogPackageRecord = {
-    packageKey,
-    sourceType: input.sourceType,
-    sourceName: input.sourceName,
-    displayName: input.displayName ?? input.sourceName,
-    searchName: (input.displayName ?? input.sourceName).trim().toLowerCase(),
-    description: input.description ?? null,
+    packageName: input.packageName,
+    repositoryUrl: input.repositoryUrl ?? null,
+    packageUrl: input.packageUrl ?? createPackageUrl(input.packageName),
+    packageDescription: input.packageDescription ?? null,
     homepageUrl: input.homepageUrl ?? null,
-    primaryUrl:
-      input.primaryUrl ?? createPrimaryUrl(input.sourceType, input.sourceName),
-    repositoryName: input.repositoryName ?? null,
-    npmPackageName: input.npmPackageName ?? null,
-    publishedAt: input.publishedAt ?? null,
-    stars: input.stars ?? null,
-    downloads: input.downloads ?? 0,
-    downloadsPeriod: input.downloadsPeriod ?? null,
-    dependentPackagesCount: input.dependentPackagesCount ?? 0,
-    rawEcosystemsFetchedAt:
-      input.rawEcosystemsFetchedAt ??
-      new Date("2026-01-01T00:00:00.000Z").toISOString(),
-    npmSyncedAt: input.npmSyncedAt ?? null,
-    githubSyncedAt: input.githubSyncedAt ?? null,
-    isActive: input.isActive ?? 1,
+    repositoryStars: input.repositoryStars ?? null,
+    packageDownloads: input.packageDownloads ?? 0,
+    packageDownloadsPeriod: input.packageDownloadsPeriod ?? "last-month",
+    packageLastPublishedAt: input.packageLastPublishedAt ?? null,
+    lastSyncedAt:
+      input.lastSyncedAt ?? new Date("2026-01-01T00:00:00.000Z").toISOString(),
   }
 
   await upsertPackage(client, record)
 
-  if (input.tags && input.tags.length > 0) {
+  if (input.packageTags && input.packageTags.length > 0) {
     await replacePackageTags(
       client,
-      packageKey,
-      input.tagSource ?? "seed",
-      input.tags
+      "package_tags",
+      input.packageName,
+      input.packageTags
+    )
+  }
+
+  if (input.repositoryTags && input.repositoryTags.length > 0) {
+    await replacePackageTags(
+      client,
+      "repository_tags",
+      input.packageName,
+      input.repositoryTags
     )
   }
 

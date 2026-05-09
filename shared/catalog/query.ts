@@ -26,11 +26,6 @@ export function normalizeCatalogQuery(value?: string | null) {
   return value.trim()
 }
 
-export function normalizeCatalogSource(value?: string | null) {
-  const normalized = normalizeCatalogText(value)
-  return normalized.length > 0 ? normalized : undefined
-}
-
 export function normalizeCatalogTags(rawTags?: string | null) {
   if (!rawTags) {
     return []
@@ -84,7 +79,6 @@ export function parseCatalogSearchParams(
   return {
     query: normalizeCatalogQuery(searchParams.get("q")),
     tags: normalizeCatalogTags(searchParams.get("tags")),
-    source: normalizeCatalogSource(searchParams.get("source")),
     limit: clampCatalogLimit(searchParams.get("limit")),
     cursor,
     sort: normalizeCatalogSort(searchParams.get("sort")),
@@ -93,10 +87,6 @@ export function parseCatalogSearchParams(
   }
 }
 
-export function parseCatalogTagListParams(
-  searchParams: URLSearchParams
-): CatalogTagListParams {
-  return {
-    source: normalizeCatalogSource(searchParams.get("source")),
-  }
+export function parseCatalogTagListParams(): CatalogTagListParams {
+  return {}
 }

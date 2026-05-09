@@ -14,30 +14,23 @@ describe("catalog services", () => {
 
     try {
       await seedCatalogPackage(database.client, {
-        sourceType: "npm",
-        sourceName: "react",
-        displayName: "React",
-        description: "UI library",
+        packageName: "react",
+        packageDescription: "UI library",
         homepageUrl: "https://react.dev",
-        npmPackageName: "react",
-        publishedAt: "2026-01-01T00:00:00.000Z",
-        repositoryName: "facebook/react",
-        stars: 200_000,
-        downloads: 1000,
-        dependentPackagesCount: 500,
-        tags: ["react", "ui"],
+        repositoryUrl: "https://github.com/facebook/react",
+        packageLastPublishedAt: "2026-01-01T00:00:00.000Z",
+        repositoryStars: 200_000,
+        packageDownloads: 1000,
+        packageTags: ["react", "ui"],
+        repositoryTags: ["frontend"],
       })
       await seedCatalogPackage(database.client, {
-        sourceType: "npm",
-        sourceName: "vue",
-        displayName: "Vue",
-        description: "Progressive framework",
-        npmPackageName: "vue",
-        repositoryName: "vuejs/core",
-        stars: 150_000,
-        downloads: 800,
-        dependentPackagesCount: 400,
-        tags: ["vue", "ui"],
+        packageName: "vue",
+        packageDescription: "Progressive framework",
+        repositoryUrl: "https://github.com/vuejs/core",
+        repositoryStars: 150_000,
+        packageDownloads: 800,
+        packageTags: ["vue", "ui"],
       })
 
       const result = await searchCatalog(
@@ -46,16 +39,17 @@ describe("catalog services", () => {
           new URLSearchParams({
             q: "ui facebook",
             tags: "ui",
-            source: "npm",
             limit: "1",
           })
         )
       )
 
       expect(result.items).toHaveLength(1)
-      expect(result.items[0]?.name).toBe("React")
+      expect(result.items[0]?.packageName).toBe("react")
       expect(result.items[0]?.homepageUrl).toBe("https://react.dev")
-      expect(result.items[0]?.publishedAt).toBe("2026-01-01T00:00:00.000Z")
+      expect(result.items[0]?.packageLastPublishedAt).toBe(
+        "2026-01-01T00:00:00.000Z"
+      )
       expect(result.nextCursor).toBeNull()
       expect(result.totalApprox).toBe(1)
     } finally {
@@ -68,28 +62,22 @@ describe("catalog services", () => {
 
     try {
       await seedCatalogPackage(database.client, {
-        sourceType: "npm",
-        sourceName: "react",
-        displayName: "React",
-        publishedAt: "2026-01-01T00:00:00.000Z",
-        stars: 200_000,
-        tags: ["react", "ui"],
+        packageName: "react",
+        packageLastPublishedAt: "2026-01-01T00:00:00.000Z",
+        repositoryStars: 200_000,
+        packageTags: ["react", "ui"],
       })
       await seedCatalogPackage(database.client, {
-        sourceType: "npm",
-        sourceName: "astro",
-        displayName: "Astro",
-        publishedAt: "2025-11-20T00:00:00.000Z",
-        stars: 45_000,
-        tags: ["framework", "ssg"],
+        packageName: "astro",
+        packageLastPublishedAt: "2025-11-20T00:00:00.000Z",
+        repositoryStars: 45_000,
+        packageTags: ["framework", "ssg"],
       })
       await seedCatalogPackage(database.client, {
-        sourceType: "npm",
-        sourceName: "vue",
-        displayName: "Vue",
-        publishedAt: "2025-12-15T00:00:00.000Z",
-        stars: 150_000,
-        tags: ["ui", "vue"],
+        packageName: "vue",
+        packageLastPublishedAt: "2025-12-15T00:00:00.000Z",
+        repositoryStars: 150_000,
+        packageTags: ["ui", "vue"],
       })
 
       const starsResult = await searchCatalog(
@@ -120,51 +108,50 @@ describe("catalog services", () => {
         )
       )
 
-      expect(starsResult.items.map((item) => item.name)).toEqual([
-        "React",
-        "Vue",
-        "Astro",
+      expect(starsResult.items.map((item) => item.packageName)).toEqual([
+        "react",
+        "vue",
+        "astro",
       ])
-      expect(publishedResult.items.map((item) => item.name)).toEqual([
-        "React",
-        "Vue",
-        "Astro",
+      expect(publishedResult.items.map((item) => item.packageName)).toEqual([
+        "react",
+        "vue",
+        "astro",
       ])
-      expect(tagsResult.items.map((item) => item.name)).toEqual([
-        "React",
-        "Vue",
-        "Astro",
+      expect(tagsResult.items.map((item) => item.packageName)).toEqual([
+        "react",
+        "vue",
+        "astro",
       ])
     } finally {
       await database.cleanup()
     }
   })
 
-  it("lists tags with optional source filtering", async () => {
+  it("lists merged package and repository tags", async () => {
     const database = await createTestCatalogDatabase()
 
     try {
       await seedCatalogPackage(database.client, {
-        sourceType: "npm",
-        sourceName: "react",
-        tags: ["react", "ui"],
+        packageName: "react",
+        packageTags: ["react", "ui"],
+        repositoryTags: ["opensource"],
       })
       await seedCatalogPackage(database.client, {
-        sourceType: "gh",
-        sourceName: "facebook/react",
-        tags: ["react", "opensource"],
+        packageName: "vite",
+        packageTags: ["build"],
       })
 
       const allTags = await listCatalogTags(database.client, {})
-      const npmTags = await listCatalogTags(database.client, { source: "npm" })
 
       expect(allTags.items.map((tag) => tag.id)).toEqual(
-        expect.arrayContaining(["react", "component-library", "opensource"])
+        expect.arrayContaining([
+          "react",
+          "component-library",
+          "opensource",
+          "build-tool",
+        ])
       )
-      expect(npmTags.items.map((tag) => tag.id)).toEqual(
-        expect.arrayContaining(["react", "component-library"])
-      )
-      expect(npmTags.items.map((tag) => tag.id)).not.toContain("opensource")
     } finally {
       await database.cleanup()
     }

@@ -12,20 +12,15 @@ export type CatalogSortColumn = (typeof CATALOG_SORT_COLUMNS)[number]
 export type CatalogSortDirection = (typeof CATALOG_SORT_DIRECTIONS)[number]
 
 export type CatalogItem = {
-  packageKey: string
-  sourceType: string
-  sourceName: string
-  name: string
-  description: string | null
+  packageName: string
+  repositoryUrl: string | null
+  packageUrl: string
+  packageDescription: string | null
   homepageUrl: string | null
-  url: string | null
-  repositoryName: string | null
-  npmPackageName: string | null
-  publishedAt: string | null
-  stars: number | null
-  downloads: number
-  downloadsPeriod: string | null
-  dependentPackagesCount: number
+  repositoryStars: number | null
+  packageDownloads: number
+  packageDownloadsPeriod: string | null
+  packageLastPublishedAt: string | null
   tags: string[]
 }
 
@@ -48,7 +43,6 @@ export type CatalogTagListResponse = {
 export type CatalogSearchParams = {
   query: string
   tags: string[]
-  source?: string
   limit: number
   cursor?: string | null
   sort: CatalogSortColumn
@@ -59,6 +53,4 @@ export type ParsedCatalogSearchParams = CatalogSearchParams & {
   offset: number
 }
 
-export type CatalogTagListParams = {
-  source?: string
-}
+export type CatalogTagListParams = Record<string, never>

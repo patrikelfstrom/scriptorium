@@ -4,17 +4,16 @@ import type {
 } from "../../../shared/catalog"
 
 export type CatalogRow = {
-  id: string
-  name: string
-  description?: string
+  packageName: string
+  packageDescription?: string
   homepageUrl?: string
-  url?: string
-  repositoryName?: string
-  github?: string
-  npmPackageName?: string
-  npmPackageUrl?: string
-  publishedAt?: string
-  stars?: number
+  repositoryUrl?: string
+  repositoryLabel?: string
+  packageUrl: string
+  packageLastPublishedAt?: string
+  repositoryStars?: number
+  packageDownloads: number
+  packageDownloadsPeriod?: string
   tags: string[]
 }
 

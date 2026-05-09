@@ -3,24 +3,23 @@ import type { CatalogRow } from "./types"
 
 export function mapCatalogItemsToRows(items: CatalogItem[]): CatalogRow[] {
   return items.map((item) => ({
-    id: item.packageKey,
-    name: item.name,
-    description: normalizeOptionalString(item.description),
+    packageName: item.packageName,
+    packageDescription: normalizeOptionalString(item.packageDescription),
     homepageUrl: normalizeOptionalString(item.homepageUrl),
-    url: normalizeOptionalString(item.homepageUrl ?? item.url),
-    repositoryName: normalizeOptionalString(item.repositoryName),
-    github: item.repositoryName
-      ? `https://github.com/${item.repositoryName}`
-      : undefined,
-    npmPackageName: normalizeOptionalString(item.npmPackageName),
-    npmPackageUrl: item.npmPackageName
-      ? `https://www.npmjs.com/package/${item.npmPackageName
-          .split("/")
-          .map(encodeURIComponent)
-          .join("/")}`
-      : undefined,
-    publishedAt: normalizeOptionalString(item.publishedAt),
-    stars: typeof item.stars === "number" ? item.stars : undefined,
+    repositoryUrl: normalizeOptionalString(item.repositoryUrl),
+    repositoryLabel: deriveRepositoryLabel(item.repositoryUrl),
+    packageUrl: item.packageUrl,
+    packageLastPublishedAt: normalizeOptionalString(
+      item.packageLastPublishedAt
+    ),
+    repositoryStars:
+      typeof item.repositoryStars === "number"
+        ? item.repositoryStars
+        : undefined,
+    packageDownloads: item.packageDownloads,
+    packageDownloadsPeriod: normalizeOptionalString(
+      item.packageDownloadsPeriod
+    ),
     tags: uniqueValues(
       item.tags
         .map(normalizeOptionalString)
@@ -37,6 +36,25 @@ function normalizeOptionalString(value?: string | null) {
 
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : undefined
+}
+
+function deriveRepositoryLabel(repositoryUrl?: string | null) {
+  if (typeof repositoryUrl !== "string" || repositoryUrl.trim().length === 0) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(repositoryUrl)
+    const pathname = url.pathname.replace(/^\/+|\/+$/g, "")
+
+    if (pathname.length > 0) {
+      return pathname
+    }
+
+    return url.hostname
+  } catch {
+    return repositoryUrl
+  }
 }
 
 function uniqueValues(values: string[]) {

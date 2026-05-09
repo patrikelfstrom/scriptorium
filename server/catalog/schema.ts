@@ -2,40 +2,38 @@ import type { InStatement } from "@libsql/client"
 
 import type { CatalogDatabaseClient } from "./database"
 
+const EXPECTED_TABLE_COLUMNS = {
+  packages: [
+    "package_name",
+    "repository_url",
+    "package_url",
+    "package_description",
+    "homepage_url",
+    "repository_stars",
+    "package_downloads",
+    "package_downloads_period",
+    "package_last_published_at",
+    "last_synced_at",
+  ],
+  package_tags: ["package_name", "tag_id", "raw_value"],
+  repository_tags: ["package_name", "tag_id", "raw_value"],
+  tags: ["tag_id", "label"],
+  tag_aliases: ["alias", "tag_id"],
+} as const
+
 const schemaStatements: InStatement[] = [
   `
-    CREATE TABLE IF NOT EXISTS raw_ecosystems_packages (
-      package_key TEXT PRIMARY KEY,
-      source_type TEXT NOT NULL,
-      source_name TEXT NOT NULL,
-      downloads INTEGER NOT NULL,
-      downloads_period TEXT,
-      dependent_packages_count INTEGER NOT NULL,
-      raw_json TEXT NOT NULL,
-      fetched_at TEXT NOT NULL
-    )
-  `,
-  `
     CREATE TABLE IF NOT EXISTS packages (
-      package_key TEXT PRIMARY KEY,
-      source_type TEXT NOT NULL,
-      source_name TEXT NOT NULL,
-      display_name TEXT NOT NULL,
-      search_name TEXT NOT NULL,
-      description TEXT,
+      package_name TEXT PRIMARY KEY,
+      repository_url TEXT,
+      package_url TEXT NOT NULL,
+      package_description TEXT,
       homepage_url TEXT,
-      primary_url TEXT NOT NULL,
-      repository_name TEXT,
-      npm_package_name TEXT,
-      last_published_at TEXT,
-      stars INTEGER,
-      downloads INTEGER NOT NULL,
-      downloads_period TEXT,
-      dependent_packages_count INTEGER NOT NULL,
-      raw_ecosystems_fetched_at TEXT NOT NULL,
-      npm_synced_at TEXT,
-      github_synced_at TEXT,
-      is_active INTEGER NOT NULL DEFAULT 1
+      repository_stars INTEGER,
+      package_downloads INTEGER NOT NULL,
+      package_downloads_period TEXT,
+      package_last_published_at TEXT,
+      last_synced_at TEXT NOT NULL
     )
   `,
   `
@@ -46,12 +44,21 @@ const schemaStatements: InStatement[] = [
   `,
   `
     CREATE TABLE IF NOT EXISTS package_tags (
-      package_key TEXT NOT NULL,
+      package_name TEXT NOT NULL,
       tag_id TEXT NOT NULL,
-      source TEXT NOT NULL,
       raw_value TEXT NOT NULL,
-      PRIMARY KEY (package_key, tag_id, source, raw_value),
-      FOREIGN KEY (package_key) REFERENCES packages(package_key) ON DELETE CASCADE,
+      PRIMARY KEY (package_name, tag_id, raw_value),
+      FOREIGN KEY (package_name) REFERENCES packages(package_name) ON DELETE CASCADE,
+      FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS repository_tags (
+      package_name TEXT NOT NULL,
+      tag_id TEXT NOT NULL,
+      raw_value TEXT NOT NULL,
+      PRIMARY KEY (package_name, tag_id, raw_value),
+      FOREIGN KEY (package_name) REFERENCES packages(package_name) ON DELETE CASCADE,
       FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
     )
   `,
@@ -63,44 +70,54 @@ const schemaStatements: InStatement[] = [
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS packages_source_type_idx
-    ON packages(source_type, is_active)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS packages_search_name_idx
-    ON packages(search_name)
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS packages_stars_idx
-    ON packages(stars DESC)
-  `,
-  `
     CREATE INDEX IF NOT EXISTS packages_downloads_idx
-    ON packages(downloads DESC)
+    ON packages(package_downloads DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS packages_dependent_packages_count_idx
-    ON packages(dependent_packages_count DESC)
+    CREATE INDEX IF NOT EXISTS packages_repository_stars_idx
+    ON packages(repository_stars DESC)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS packages_last_published_at_idx
+    ON packages(package_last_published_at DESC)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS packages_package_name_idx
+    ON packages(package_name)
   `,
   `
     CREATE INDEX IF NOT EXISTS package_tags_tag_id_idx
-    ON package_tags(tag_id, package_key)
+    ON package_tags(tag_id, package_name)
   `,
   `
-    CREATE INDEX IF NOT EXISTS package_tags_package_key_idx
-    ON package_tags(package_key, tag_id)
+    CREATE INDEX IF NOT EXISTS package_tags_package_name_idx
+    ON package_tags(package_name, tag_id)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS repository_tags_tag_id_idx
+    ON repository_tags(tag_id, package_name)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS repository_tags_package_name_idx
+    ON repository_tags(package_name, tag_id)
   `,
 ]
 
 const destructiveResetStatements: InStatement[] = [
-  "DROP INDEX IF EXISTS package_tags_package_key_idx",
+  "DROP INDEX IF EXISTS repository_tags_package_name_idx",
+  "DROP INDEX IF EXISTS repository_tags_tag_id_idx",
+  "DROP INDEX IF EXISTS package_tags_package_name_idx",
   "DROP INDEX IF EXISTS package_tags_tag_id_idx",
-  "DROP INDEX IF EXISTS packages_dependent_packages_count_idx",
+  "DROP INDEX IF EXISTS packages_package_name_idx",
+  "DROP INDEX IF EXISTS packages_last_published_at_idx",
+  "DROP INDEX IF EXISTS packages_repository_stars_idx",
   "DROP INDEX IF EXISTS packages_downloads_idx",
+  "DROP INDEX IF EXISTS packages_dependent_packages_count_idx",
   "DROP INDEX IF EXISTS packages_stars_idx",
   "DROP INDEX IF EXISTS packages_search_name_idx",
   "DROP INDEX IF EXISTS packages_source_type_idx",
   "DROP INDEX IF EXISTS packages_hits_idx",
+  "DROP TABLE IF EXISTS repository_tags",
   "DROP TABLE IF EXISTS package_tags",
   "DROP TABLE IF EXISTS tag_aliases",
   "DROP TABLE IF EXISTS tags",
@@ -110,35 +127,61 @@ const destructiveResetStatements: InStatement[] = [
 ]
 
 export async function ensureCatalogSchema(client: CatalogDatabaseClient) {
-  for (const statement of schemaStatements) {
-    await client.execute(statement)
+  if (await hasLegacyCatalogSchema(client)) {
+    await applyStatements(client, destructiveResetStatements)
   }
 
-  await ensurePackagesColumn(client, "homepage_url", "TEXT")
-  await ensurePackagesColumn(client, "last_published_at", "TEXT")
+  await applyStatements(client, schemaStatements)
 }
 
 export async function resetCatalogSchema(client: CatalogDatabaseClient) {
-  for (const statement of destructiveResetStatements) {
-    await client.execute(statement)
-  }
-
-  await ensureCatalogSchema(client)
+  await applyStatements(client, destructiveResetStatements)
+  await applyStatements(client, schemaStatements)
 }
 
-async function ensurePackagesColumn(
+async function applyStatements(
   client: CatalogDatabaseClient,
-  columnName: string,
-  columnType: string
+  statements: InStatement[]
 ) {
-  const result = await client.execute("PRAGMA table_info(packages)")
-  const existingColumns = new Set(result.rows.map((row) => String(row.name)))
+  for (const statement of statements) {
+    await client.execute(statement)
+  }
+}
 
-  if (existingColumns.has(columnName)) {
-    return
+async function hasLegacyCatalogSchema(client: CatalogDatabaseClient) {
+  for (const [tableName, expectedColumns] of Object.entries(
+    EXPECTED_TABLE_COLUMNS
+  )) {
+    const currentColumns = await getTableColumns(client, tableName)
+
+    if (currentColumns === null) {
+      continue
+    }
+
+    if (
+      currentColumns.length !== expectedColumns.length ||
+      expectedColumns.some((column) => !currentColumns.includes(column))
+    ) {
+      return true
+    }
   }
 
-  await client.execute(
-    `ALTER TABLE packages ADD COLUMN ${columnName} ${columnType}`
-  )
+  return false
+}
+
+async function getTableColumns(
+  client: CatalogDatabaseClient,
+  tableName: string
+) {
+  const result = await client.execute({
+    sql: `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    args: [tableName],
+  })
+
+  if (result.rows.length === 0) {
+    return null
+  }
+
+  const columns = await client.execute(`PRAGMA table_info(${tableName})`)
+  return columns.rows.map((row) => String(row.name))
 }

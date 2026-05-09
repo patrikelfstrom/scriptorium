@@ -69,7 +69,7 @@ export function ResultsTable({
       ),
       cell: ({ row }: { row: { original: CatalogRow } }) => {
         const tool = row.original
-        const nameHref = tool.npmPackageUrl ?? tool.url
+        const nameHref = tool.packageUrl
 
         return (
           <div className="flex min-w-0 items-center gap-4">
@@ -81,30 +81,38 @@ export function ResultsTable({
                   target="_blank"
                   rel="noreferrer"
                 >
-                  {tool.name}
+                  {tool.packageName}
                 </a>
               ) : (
-                <span className="block min-w-0 truncate">{tool.name}</span>
+                <span className="block min-w-0 truncate">
+                  {tool.packageName}
+                </span>
               )}
             </div>
-            {tool.github || tool.npmPackageUrl || tool.homepageUrl ? (
+            {tool.repositoryUrl || tool.packageUrl || tool.homepageUrl ? (
               <div className="ml-auto flex shrink-0 items-center gap-4 text-xs text-muted-foreground">
-                {tool.github ? (
+                {tool.repositoryUrl ? (
                   <MetadataLink
-                    href={tool.github}
+                    href={tool.repositoryUrl}
                     label={truncateLabel(
-                      tool.repositoryName ?? "github",
+                      tool.repositoryLabel ?? "repository",
                       GITHUB_REPOSITORY_LABEL_MAX_LENGTH
                     )}
-                    title={tool.repositoryName ?? "github"}
-                    ariaLabel={tool.repositoryName ?? "github"}
-                    icon={<GitHubIcon className="size-3.5" />}
+                    title={tool.repositoryLabel ?? "repository"}
+                    ariaLabel={tool.repositoryLabel ?? "repository"}
+                    icon={
+                      isGitHubRepositoryUrl(tool.repositoryUrl) ? (
+                        <GitHubIcon className="size-3.5" />
+                      ) : (
+                        <LinkIcon className="size-3.5" />
+                      )
+                    }
                     monospace
                   />
                 ) : null}
-                {tool.npmPackageUrl ? (
+                {tool.packageUrl ? (
                   <MetadataLink
-                    href={tool.npmPackageUrl}
+                    href={tool.packageUrl}
                     label="npm"
                     icon={<NpmIcon className="size-3.5" />}
                   />
@@ -124,7 +132,7 @@ export function ResultsTable({
     },
     {
       id: "stars",
-      accessorFn: (row: CatalogRow) => row.stars ?? 0,
+      accessorFn: (row: CatalogRow) => row.repositoryStars ?? 0,
       header: () => (
         <SortButton
           active={sortState.column === "stars"}
@@ -134,11 +142,11 @@ export function ResultsTable({
         />
       ),
       cell: ({ row }: { row: { original: CatalogRow } }) =>
-        formatStarCount(row.original.stars),
+        formatStarCount(row.original.repositoryStars),
     },
     {
       id: "published",
-      accessorFn: (row: CatalogRow) => row.publishedAt ?? "",
+      accessorFn: (row: CatalogRow) => row.packageLastPublishedAt ?? "",
       header: () => (
         <SortButton
           active={sortState.column === "published"}
@@ -148,7 +156,9 @@ export function ResultsTable({
         />
       ),
       cell: ({ row }: { row: { original: CatalogRow } }) => (
-        <span>{formatPublishedDate(row.original.publishedAt) || "—"}</span>
+        <span>
+          {formatPublishedDate(row.original.packageLastPublishedAt) || "—"}
+        </span>
       ),
     },
     {
@@ -169,7 +179,7 @@ export function ResultsTable({
 
             return (
               <button
-                key={`${row.original.id}-${tag}`}
+                key={`${row.original.packageName}-${tag}`}
                 type="button"
                 onClick={() => toggleSelectedTag(tag, setSelectedTags)}
                 aria-pressed={isSelected}
@@ -479,6 +489,18 @@ function LoadingRowCells() {
       </td>
     </>
   )
+}
+
+function isGitHubRepositoryUrl(repositoryUrl?: string) {
+  if (!repositoryUrl) {
+    return false
+  }
+
+  try {
+    return new URL(repositoryUrl).hostname === "github.com"
+  } catch {
+    return false
+  }
 }
 
 function MetadataLink({

@@ -31,7 +31,7 @@ Set these secrets in the Cloudflare Worker runtime, not in GitHub Actions:
 - `TURSO_DATABASE_URL`
 - `TURSO_AUTH_TOKEN`
 
-The scheduled catalog refresh workflow still reads Turso directly from GitHub Actions, so keep `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` configured as GitHub repository secrets for that job as well.
+The scheduled catalog refresh workflow still reads Turso directly from GitHub Actions, so keep `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `GITHUB_TOKEN` configured as GitHub repository secrets for that job as well.
 
 ## Local development
 
@@ -81,15 +81,14 @@ For an existing Turso or local database created before the current schema, run `
 
 The public read API is:
 
-- `GET /api/search?q&tags&source&limit&cursor`
-- `GET /api/tags?source`
+- `GET /api/search?q&tags&limit&cursor`
+- `GET /api/tags`
 
 ## Admin sync commands
 
-- `pnpm sync:ecosystems-popular`
-- `pnpm prune:ecosystems-packages`
+- `pnpm sync:npm-catalog`
 
-These commands update the database directly. They do not generate repo data files or commit changes.
+This command updates the database directly. It does not generate repo data files or commit changes.
 
 ## Build and validation
 
@@ -99,6 +98,7 @@ pnpm typecheck
 pnpm test
 pnpm build:app
 pnpm build:worker
+pnpm verify
 ```
 
 ## Environment variables
@@ -106,8 +106,8 @@ pnpm build:worker
 - `VITE_API_BASE_URL`: frontend API origin override for local or split-origin deployments
 - `TURSO_DATABASE_URL`: Turso/libSQL database URL for the worker and sync scripts
 - `TURSO_AUTH_TOKEN`: Turso auth token when using remote Turso
-- `ECOSYSTEMS_BASE_URL`: optional ecosyste.ms API override, defaults to `https://packages.ecosyste.ms/api/v1`
-- `ECOSYSTEMS_PAGE_SIZE`: optional ecosyste.ms page size for sync requests, defaults to `50`
-- `ECOSYSTEMS_SYNC_LIMIT`: optional total number of ecosyste.ms npm packages to sync, defaults to `1000`
-- `SCRIPTORIUM_USER_AGENT`: optional user agent for ecosyste.ms sync
+- `GITHUB_TOKEN`: required GitHub token for repository stars/topics enrichment during sync
+- `NPM_SYNC_LIMIT`: optional total number of npm packages to sync, defaults to `10000`
+- `NPM_REGISTRY_BASE_URL`: optional npm registry API override, defaults to `https://registry.npmjs.org`
+- `GITHUB_GRAPHQL_URL`: optional GitHub GraphQL API override, defaults to `https://api.github.com/graphql`
 - `SCRIPTORIUM_DATA_DIR`: optional local fallback database directory

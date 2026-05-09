@@ -37,16 +37,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Refresh ecosyste.ms package data
+      - name: Refresh npm catalog data
         env:
-          ECOSYSTEMS_PAGE_SIZE: 50
-          ECOSYSTEMS_SYNC_LIMIT: 300
+          NPM_SYNC_LIMIT: 300
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-        run: pnpm sync:ecosystems-popular
-
-      - name: Prune stale ecosyste.ms packages
-        env:
-          TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-        run: pnpm prune:ecosystems-packages
+        run: pnpm sync:npm-catalog

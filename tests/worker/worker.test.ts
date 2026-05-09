@@ -10,13 +10,10 @@ describe("worker routes", () => {
 
     try {
       await seedCatalogPackage(database.client, {
-        sourceType: "npm",
-        sourceName: "react",
-        displayName: "React",
-        npmPackageName: "react",
-        repositoryName: "facebook/react",
-        stars: 200_000,
-        tags: ["react", "ui"],
+        packageName: "react",
+        repositoryUrl: "https://github.com/facebook/react",
+        repositoryStars: 200_000,
+        packageTags: ["react", "ui"],
       })
 
       const env = {
@@ -41,7 +38,7 @@ describe("worker routes", () => {
       const searchPayload = await searchResponse.json()
       const tagsPayload = await tagsResponse.json()
 
-      expect(searchPayload.items[0]?.name).toBe("React")
+      expect(searchPayload.items[0]?.packageName).toBe("react")
       expect(searchPayload.totalApprox).toBe(1)
       expect(tagsPayload.items.map((tag: { id: string }) => tag.id)).toEqual(
         expect.arrayContaining(["react", "component-library"])

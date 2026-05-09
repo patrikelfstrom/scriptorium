@@ -9,7 +9,7 @@ const client = createNodeCatalogDatabaseClient()
 try {
   await resetCatalogSchema(client)
   console.log(
-    "Catalog database reset complete. Run `pnpm sync:ecosystems-popular` to repopulate it."
+    "Catalog database reset complete. Run `pnpm sync:npm-catalog` to repopulate it."
   )
 } finally {
   client.close?.()

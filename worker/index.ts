@@ -4,6 +4,7 @@ import {
 } from "../shared/catalog"
 import { createCatalogDatabaseClient } from "../server/catalog/database"
 import { listCatalogTags, searchCatalog } from "../server/catalog/read-service"
+import { ensureCatalogSchema } from "../server/catalog/schema"
 
 export type WorkerEnv = {
   SCRIPTORIUM_DATA_DIR?: string
@@ -53,6 +54,8 @@ async function handleSearchRequest(url: URL, env: WorkerEnv) {
   const client = createCatalogDatabaseClient(env)
 
   try {
+    await ensureCatalogSchema(client)
+
     const payload = await searchCatalog(
       client,
       parseCatalogSearchParams(url.searchParams)
@@ -64,14 +67,13 @@ async function handleSearchRequest(url: URL, env: WorkerEnv) {
   }
 }
 
-async function handleTagsRequest(url: URL, env: WorkerEnv) {
+async function handleTagsRequest(_url: URL, env: WorkerEnv) {
   const client = createCatalogDatabaseClient(env)
 
   try {
-    const payload = await listCatalogTags(
-      client,
-      parseCatalogTagListParams(url.searchParams)
-    )
+    await ensureCatalogSchema(client)
+
+    const payload = await listCatalogTags(client, parseCatalogTagListParams())
 
     return jsonResponse(payload)
   } finally {

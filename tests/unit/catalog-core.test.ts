@@ -5,10 +5,13 @@ import {
   tokenizeCatalogQuery,
 } from "../../shared/catalog"
 import {
-  createPackageKey,
-  createPrimaryUrl,
+  createPackageUrl,
   encodePackageNameForPage,
 } from "../../server/catalog/package-store"
+import {
+  parseGitHubRepositoryRef,
+  selectTopDownloadCountEntries,
+} from "../../server/catalog/npm-sync-service"
 import {
   createTagLabel,
   normalizeTagValue,
@@ -25,7 +28,6 @@ describe("catalog core helpers", () => {
       new URLSearchParams({
         q: "  React Query  ",
         tags: "UI, frontend, ui",
-        source: " NPM ",
         limit: "9999",
         cursor: encodeCatalogCursor(40),
       })
@@ -34,7 +36,6 @@ describe("catalog core helpers", () => {
     expect(params).toEqual({
       query: "React Query",
       tags: ["ui", "frontend"],
-      source: "npm",
       limit: 1000,
       cursor: encodeCatalogCursor(40),
       sort: "name",
@@ -59,14 +60,56 @@ describe("catalog core helpers", () => {
     )
   })
 
-  it("builds package keys and URLs", () => {
-    expect(createPackageKey("npm", "react")).toBe("npm:react")
-    expect(createPrimaryUrl("gh", "facebook/react")).toBe(
-      "https://github.com/facebook/react"
-    )
-    expect(createPrimaryUrl("npm", "@scope/pkg")).toBe(
+  it("builds package URLs", () => {
+    expect(createPackageUrl("@scope/pkg")).toBe(
       "https://www.npmjs.com/package/%40scope/pkg"
     )
     expect(encodePackageNameForPage("@scope/pkg")).toBe("%40scope/pkg")
+  })
+
+  it("selects top download count entries", () => {
+    expect(
+      selectTopDownloadCountEntries(
+        [
+          { packageName: "b", packageDownloads: 2 },
+          { packageName: "a", packageDownloads: 2 },
+          { packageName: "c", packageDownloads: 1 },
+        ],
+        2
+      )
+    ).toEqual([
+      { packageName: "a", packageDownloads: 2 },
+      { packageName: "b", packageDownloads: 2 },
+    ])
+  })
+
+  it("parses GitHub repository refs from normalized repository URLs", () => {
+    expect(
+      parseGitHubRepositoryRef("https://github.com/facebook/react")
+    ).toEqual({
+      owner: "facebook",
+      name: "react",
+    })
+    expect(parseGitHubRepositoryRef("facebook/react")).toEqual({
+      owner: "facebook",
+      name: "react",
+    })
+    expect(
+      parseGitHubRepositoryRef("git+ssh://git@github.com/facebook/react.git")
+    ).toEqual({
+      owner: "facebook",
+      name: "react",
+    })
+    expect(
+      parseGitHubRepositoryRef(
+        "git+https://github.com/facebook/react.git#readme"
+      )
+    ).toEqual({
+      owner: "facebook",
+      name: "react",
+    })
+    expect(
+      parseGitHubRepositoryRef("https://gitlab.com/example/project")
+    ).toBeUndefined()
   })
 })
