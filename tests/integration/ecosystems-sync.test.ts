@@ -353,19 +353,21 @@ describe("ecosyste.ms popular sync", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     try {
-      const resultPromise = syncEcosystemsPopular(database.client, {
-        ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
-        fromAddress: "info@scriptorium.dev",
-        syncLimit: 1,
-        updatedAfter: "2025-01-01T00:00:00.000Z",
-        userAgent: "scriptorium-test/0.1.1",
-      })
+      const resultExpectation = expect(
+        syncEcosystemsPopular(database.client, {
+          ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
+          fromAddress: "info@scriptorium.dev",
+          syncLimit: 1,
+          updatedAfter: "2025-01-01T00:00:00.000Z",
+          userAgent: "scriptorium-test/0.1.1",
+        })
+      ).rejects.toThrow(
+        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=50&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error'
+      )
 
       await vi.advanceTimersByTimeAsync(30_000)
 
-      await expect(resultPromise).rejects.toThrow(
-        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=50&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error'
-      )
+      await resultExpectation
       expect(fetchMock).toHaveBeenCalledTimes(4)
     } finally {
       await database.cleanup()
@@ -408,19 +410,21 @@ describe("ecosyste.ms popular sync", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     try {
-      const resultPromise = syncEcosystemsPopular(database.client, {
+      const resultExpectation = expect(
+        syncEcosystemsPopular(database.client, {
           ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
           fromAddress: "info@scriptorium.dev",
           syncLimit: 60,
           updatedAfter: "2025-01-01T00:00:00.000Z",
           userAgent: "scriptorium-test/0.1.1",
         })
+      ).rejects.toThrow(
+        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=2&per_page=50&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error'
+      )
 
       await vi.advanceTimersByTimeAsync(30_000)
 
-      await expect(resultPromise).rejects.toThrow(
-        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=2&per_page=50&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error'
-      )
+      await resultExpectation
 
       const packageRows = await database.client.execute({
         sql: `
