@@ -27,7 +27,7 @@ try {
     `Synced ${result.syncedCount} ecosyste.ms packages into the catalog.`
   )
 } finally {
-  client.close?.()
+  await client.close?.()
 }
 
 function createRollingUpdatedAfter() {

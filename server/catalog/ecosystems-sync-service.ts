@@ -307,6 +307,10 @@ async function fetchEcosystemsPopularPackages(
       }
 
       await queue.add(async () => {
+        if (firstError) {
+          return
+        }
+
         const rateLimitDelayMs = nextAllowedRequestAtMs - Date.now()
 
         if (rateLimitDelayMs > 0) {
@@ -321,69 +325,76 @@ async function fetchEcosystemsPopularPackages(
         )
         const fetchStartedAt = Date.now()
 
-        const result = await fetchAndNormalizeEcosystemsPackagesPage(
-          task.page,
-          options,
-          pageSize,
-          {
-            mode: task.mode === "final-pass" ? "fail-500" : "defer-500",
-            internalServerErrorCount: task.internalServerErrorCount,
-            onRateLimitStatus: (rateLimitStatus) => {
-              options.onProgress?.(
-                formatEcosystemsRateLimitStatus(rateLimitStatus)
-              )
-
-              const throttleDelayMs =
-                createEcosystemsRateLimitThrottleDelayMs(rateLimitStatus)
-
-              if (throttleDelayMs === undefined) {
-                nextAllowedRequestAtMs = 0
-                return
-              }
-
-              nextAllowedRequestAtMs = Date.now() + throttleDelayMs
-            },
-          }
-        )
-
-        if (result.kind === "success") {
-          await storePackages(
+        try {
+          const result = await fetchAndNormalizeEcosystemsPackagesPage(
             task.page,
-            result.normalizedEntries,
-            Date.now() - fetchStartedAt
+            options,
+            pageSize,
+            {
+              mode: task.mode === "final-pass" ? "fail-500" : "defer-500",
+              internalServerErrorCount: task.internalServerErrorCount,
+              onRateLimitStatus: (rateLimitStatus) => {
+                options.onProgress?.(
+                  formatEcosystemsRateLimitStatus(rateLimitStatus)
+                )
+
+                const throttleDelayMs =
+                  createEcosystemsRateLimitThrottleDelayMs(rateLimitStatus)
+
+                if (throttleDelayMs === undefined) {
+                  nextAllowedRequestAtMs = 0
+                  return
+                }
+
+                nextAllowedRequestAtMs = Date.now() + throttleDelayMs
+              },
+            }
           )
 
-          if (result.payloadLength < pageSize) {
-            finalPage =
-              finalPage === null ? task.page : Math.min(finalPage, task.page)
+          if (result.kind === "success") {
+            await storePackages(
+              task.page,
+              result.normalizedEntries,
+              Date.now() - fetchStartedAt
+            )
+
+            if (result.payloadLength < pageSize) {
+              finalPage =
+                finalPage === null ? task.page : Math.min(finalPage, task.page)
+            }
+
+            return
           }
 
-          return
-        }
+          if (result.kind === "retry-after-delay") {
+            options.onProgress?.(
+              `Retrying deferred ecosyste.ms page ${task.page}.`
+            )
+            schedulePage(
+              {
+                page: task.page,
+                mode: "deferred",
+                internalServerErrorCount: result.internalServerErrorCount,
+              },
+              result.delayMs
+            )
+            return
+          }
 
-        if (result.kind === "retry-after-delay") {
-          options.onProgress?.(
-            `Retrying deferred ecosyste.ms page ${task.page}.`
-          )
-          schedulePage(
-            {
-              page: task.page,
-              mode: "deferred",
-              internalServerErrorCount: result.internalServerErrorCount,
-            },
-            result.delayMs
-          )
-          return
-        }
+          retryAfterSweepPages.add(task.page)
+        } catch (error) {
+          if (!firstError) {
+            firstError = unwrapEcosystemsFetchError(error)
+          }
 
-        retryAfterSweepPages.add(task.page)
+          throw error
+        }
       })
     })()
       .catch((error) => {
         if (!firstError) {
           firstError = unwrapEcosystemsFetchError(error)
         }
-        queue.pause()
       })
       .finally(() => {
         scheduledOperations.delete(operation)
