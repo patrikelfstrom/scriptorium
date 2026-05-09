@@ -453,6 +453,76 @@ describe("ecosyste.ms popular sync", () => {
     }
   })
 
+  it("stops deferred retries after enough packages have been gathered", async () => {
+    vi.useFakeTimers()
+
+    const database = await createTestCatalogDatabase()
+    const pageOnePackages = Array.from({ length: 50 }, (_, index) =>
+      createEcosystemsFixture({
+        name: `pkg-${index + 1}`,
+        downloads: 100_000 - index,
+        dependentPackagesCount: 1_000 - index,
+      })
+    )
+    const pageThreePackages = Array.from({ length: 20 }, (_, index) =>
+      createEcosystemsFixture({
+        name: `pkg-later-${index + 1}`,
+        downloads: 90_000 - index,
+        dependentPackagesCount: 900 - index,
+      })
+    )
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (url.includes("page=1")) {
+        return jsonResponse(pageOnePackages)
+      }
+
+      if (url.includes("page=2")) {
+        return new Response('{"error":"internal server error"}', {
+          status: 500,
+          statusText: "Internal Server Error",
+          headers: { "Content-Type": "application/json" },
+        })
+      }
+
+      if (url.includes("page=3")) {
+        return jsonResponse(pageThreePackages)
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const resultPromise = syncEcosystemsPopular(database.client, {
+        ecosystemsBaseUrl: "https://packages.ecosyste.ms/api/v1",
+        fromAddress: "info@scriptorium.dev",
+        syncLimit: 60,
+        updatedAfter: "2025-01-01T00:00:00.000Z",
+        userAgent: "scriptorium-test/0.1.1",
+      })
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      const result = await resultPromise
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT COUNT(*) AS total
+          FROM packages
+          WHERE source_type = 'npm'
+        `,
+      })
+
+      expect(result).toEqual({ syncedCount: 60 })
+      expect(Number(packageRows.rows[0]?.total ?? 0)).toBe(60)
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    } finally {
+      await database.cleanup()
+    }
+  })
+
   it("retries transient ecosyste.ms failures before succeeding", async () => {
     vi.useFakeTimers()
 

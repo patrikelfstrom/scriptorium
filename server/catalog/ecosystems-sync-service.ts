@@ -221,6 +221,8 @@ async function fetchEcosystemsPopularPackages(
     await onPageFetched?.(pagePackages, page)
   }
 
+  const hasSatisfiedSyncLimit = () => accumulatedCount >= options.syncLimit
+
   const maybeScheduleNextInitialPage = () => {
     if (firstError) {
       return
@@ -262,6 +264,7 @@ async function fetchEcosystemsPopularPackages(
   const maybeScheduleFinalPass = () => {
     if (
       firstError ||
+      hasSatisfiedSyncLimit() ||
       finalPassScheduled ||
       pendingNonFinalPassTasks > 0 ||
       !isInitialSweepComplete() ||
@@ -302,12 +305,12 @@ async function fetchEcosystemsPopularPackages(
         await delay(delayMs)
       }
 
-      if (firstError) {
+      if (firstError || hasSatisfiedSyncLimit()) {
         return
       }
 
       await queue.add(async () => {
-        if (firstError) {
+        if (firstError || hasSatisfiedSyncLimit()) {
           return
         }
 
@@ -318,6 +321,10 @@ async function fetchEcosystemsPopularPackages(
             `Waiting ${rateLimitDelayMs}ms for ecosyste.ms rate limit recovery before requesting page ${task.page}.`
           )
           await delay(rateLimitDelayMs)
+
+          if (firstError || hasSatisfiedSyncLimit()) {
+            return
+          }
         }
 
         options.onProgress?.(
