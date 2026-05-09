@@ -138,5 +138,7 @@ async function ensurePackagesColumn(
     return
   }
 
-  await client.execute(`ALTER TABLE packages ADD COLUMN ${columnName} ${columnType}`)
+  await client.execute(
+    `ALTER TABLE packages ADD COLUMN ${columnName} ${columnType}`
+  )
 }

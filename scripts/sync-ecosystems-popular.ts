@@ -23,7 +23,9 @@ try {
     },
   })
 
-  console.log(`Synced ${result.syncedCount} ecosyste.ms packages into the catalog.`)
+  console.log(
+    `Synced ${result.syncedCount} ecosyste.ms packages into the catalog.`
+  )
 } finally {
   client.close?.()
 }
@@ -34,7 +36,10 @@ function createRollingUpdatedAfter() {
   return updatedAfter.toISOString()
 }
 
-function parsePositiveInteger(value: string | undefined, fallbackValue: number) {
+function parsePositiveInteger(
+  value: string | undefined,
+  fallbackValue: number
+) {
   if (!value) {
     return fallbackValue
   }

@@ -7,7 +7,10 @@ import {
   createEcosystemsPackageRecord,
   createUpsertRawEcosystemsPackageStatement,
 } from "./ecosystems-storage"
-import type { EcosystemsPackage, SyncEcosystemsPopularOptions } from "./ecosystems-types"
+import type {
+  EcosystemsPackage,
+  SyncEcosystemsPopularOptions,
+} from "./ecosystems-types"
 import {
   createReplacePackageTagsStatements,
   createUpsertPackageStatement,
@@ -122,13 +125,23 @@ export async function syncEcosystemsPopular(
 
     const packagesToStore = pagePackages.slice(0, remainingCapacity)
 
-    for (let index = 0; index < packagesToStore.length; index += writeBatchSize) {
+    for (
+      let index = 0;
+      index < packagesToStore.length;
+      index += writeBatchSize
+    ) {
       const batch = packagesToStore.slice(index, index + writeBatchSize)
       const statements = batch.flatMap((ecosystemPackage) => {
-        const packageRecord = createEcosystemsPackageRecord(ecosystemPackage, fetchedAt)
+        const packageRecord = createEcosystemsPackageRecord(
+          ecosystemPackage,
+          fetchedAt
+        )
 
         return [
-          createUpsertRawEcosystemsPackageStatement(ecosystemPackage, fetchedAt),
+          createUpsertRawEcosystemsPackageStatement(
+            ecosystemPackage,
+            fetchedAt
+          ),
           createUpsertPackageStatement(packageRecord),
           ...createReplacePackageTagsStatements(
             packageRecord.packageKey,
@@ -150,8 +163,13 @@ export async function syncEcosystemsPopular(
 
     const now = Date.now()
 
-    if (now - lastWriteProgressAt >= progressIntervalMs || storedCount === options.syncLimit) {
-      options.onProgress?.(`Stored ${storedCount}/${options.syncLimit} ecosyste.ms packages.`)
+    if (
+      now - lastWriteProgressAt >= progressIntervalMs ||
+      storedCount === options.syncLimit
+    ) {
+      options.onProgress?.(
+        `Stored ${storedCount}/${options.syncLimit} ecosyste.ms packages.`
+      )
       lastWriteProgressAt = now
     }
   })
@@ -165,7 +183,10 @@ export async function syncEcosystemsPopular(
 
 async function fetchEcosystemsPopularPackages(
   options: SyncEcosystemsPopularOptions,
-  onPageFetched?: (pagePackages: EcosystemsPackage[], page: number) => Promise<void> | void
+  onPageFetched?: (
+    pagePackages: EcosystemsPackage[],
+    page: number
+  ) => Promise<void> | void
 ) {
   const queue = new PQueue({ concurrency: 1 })
   const pageSize = getEcosystemsPageSize(options)
@@ -251,8 +272,12 @@ async function fetchEcosystemsPopularPackages(
 
     finalPassScheduled = true
 
-    for (const page of Array.from(retryAfterSweepPages).sort((left, right) => left - right)) {
-      options.onProgress?.(`Retrying deferred ecosyste.ms page ${page} after other pages finished.`)
+    for (const page of Array.from(retryAfterSweepPages).sort(
+      (left, right) => left - right
+    )) {
+      options.onProgress?.(
+        `Retrying deferred ecosyste.ms page ${page} after other pages finished.`
+      )
       schedulePage({ page, mode: "final-pass", internalServerErrorCount: 0 })
     }
 
@@ -304,11 +329,12 @@ async function fetchEcosystemsPopularPackages(
             mode: task.mode === "final-pass" ? "fail-500" : "defer-500",
             internalServerErrorCount: task.internalServerErrorCount,
             onRateLimitStatus: (rateLimitStatus) => {
-              options.onProgress?.(formatEcosystemsRateLimitStatus(rateLimitStatus))
-
-              const throttleDelayMs = createEcosystemsRateLimitThrottleDelayMs(
-                rateLimitStatus
+              options.onProgress?.(
+                formatEcosystemsRateLimitStatus(rateLimitStatus)
               )
+
+              const throttleDelayMs =
+                createEcosystemsRateLimitThrottleDelayMs(rateLimitStatus)
 
               if (throttleDelayMs === undefined) {
                 nextAllowedRequestAtMs = 0
@@ -328,14 +354,17 @@ async function fetchEcosystemsPopularPackages(
           )
 
           if (result.payloadLength < pageSize) {
-            finalPage = finalPage === null ? task.page : Math.min(finalPage, task.page)
+            finalPage =
+              finalPage === null ? task.page : Math.min(finalPage, task.page)
           }
 
           return
         }
 
         if (result.kind === "retry-after-delay") {
-          options.onProgress?.(`Retrying deferred ecosyste.ms page ${task.page}.`)
+          options.onProgress?.(
+            `Retrying deferred ecosyste.ms page ${task.page}.`
+          )
           schedulePage(
             {
               page: task.page,
@@ -403,7 +432,12 @@ async function fetchAndNormalizeEcosystemsPackagesPage(
   }
 ): Promise<FetchAndNormalizeEcosystemsPackagesPageResult> {
   const requestUrl = createEcosystemsPackagesRequestUrl(options, page, pageSize)
-  const result = await fetchEcosystemsPackagesPage(requestUrl, page, options, requestBehavior)
+  const result = await fetchEcosystemsPackagesPage(
+    requestUrl,
+    page,
+    options,
+    requestBehavior
+  )
 
   if (result.kind !== "response") {
     return result
@@ -412,7 +446,9 @@ async function fetchAndNormalizeEcosystemsPackagesPage(
   const payload = await result.response.json()
 
   if (!Array.isArray(payload)) {
-    throw new Error("Expected ecosyste.ms packages endpoint to return an array.")
+    throw new Error(
+      "Expected ecosyste.ms packages endpoint to return an array."
+    )
   }
 
   return {
@@ -463,9 +499,7 @@ async function fetchEcosystemsPackagesPage(
 
         const details = await response.text()
 
-        if (
-          response.status === ECOSYSTEMS_INTERNAL_SERVER_ERROR_STATUS
-        ) {
+        if (response.status === ECOSYSTEMS_INTERNAL_SERVER_ERROR_STATUS) {
           if (requestBehavior.mode === "defer-500") {
             throw new DeferredEcosystemsInternalServerError(
               createEcosystemsFetchFailureMessage(
@@ -506,7 +540,8 @@ async function fetchEcosystemsPackagesPage(
         factor: 1,
         minTimeout: 0,
         randomize: false,
-        shouldRetry: ({ error }) => error instanceof RetryableEcosystemsFetchError,
+        shouldRetry: ({ error }) =>
+          error instanceof RetryableEcosystemsFetchError,
         onFailedAttempt: async ({ error, attemptNumber }) => {
           if (!(error instanceof RetryableEcosystemsFetchError)) {
             return
@@ -518,7 +553,12 @@ async function fetchEcosystemsPackagesPage(
           )
 
           options.onProgress?.(
-            createEcosystemsRetryMessage(page, attemptNumber, retryDelayMs, error)
+            createEcosystemsRetryMessage(
+              page,
+              attemptNumber,
+              retryDelayMs,
+              error
+            )
           )
           await delay(retryDelayMs)
         },
@@ -531,7 +571,8 @@ async function fetchEcosystemsPackagesPage(
     }
   } catch (error) {
     if (error instanceof DeferredEcosystemsInternalServerError) {
-      const internalServerErrorCount = requestBehavior.internalServerErrorCount + 1
+      const internalServerErrorCount =
+        requestBehavior.internalServerErrorCount + 1
       const retryDelayMs =
         ECOSYSTEMS_INTERNAL_SERVER_ERROR_DELAY_MS[internalServerErrorCount - 1]
 
@@ -602,18 +643,32 @@ function shouldFetchAnotherEcosystemsPage(
   return accumulatedCount < syncLimit
 }
 
-function createEcosystemsRetryDelayMs(attempt: number, retryAfterHeader?: string | null) {
-  return parseRetryAfterDelayMs(retryAfterHeader) ?? ECOSYSTEMS_FETCH_RETRY_DELAY_MS * attempt
+function createEcosystemsRetryDelayMs(
+  attempt: number,
+  retryAfterHeader?: string | null
+) {
+  return (
+    parseRetryAfterDelayMs(retryAfterHeader) ??
+    ECOSYSTEMS_FETCH_RETRY_DELAY_MS * attempt
+  )
 }
 
-function parseEcosystemsRateLimitStatus(headers: Headers): EcosystemsRateLimitStatus | undefined {
+function parseEcosystemsRateLimitStatus(
+  headers: Headers
+): EcosystemsRateLimitStatus | undefined {
   const tier = normalizeOptionalHeaderValue(headers.get("x-ratelimit-tier"))
   const limit = parseRateLimitInteger(headers.get("x-ratelimit-limit"))
   const remaining = parseRateLimitInteger(headers.get("x-ratelimit-remaining"))
   const resetAtSeconds = parseRateLimitInteger(headers.get("x-ratelimit-reset"))
-  const resetAtMs = resetAtSeconds === undefined ? undefined : resetAtSeconds * 1_000
+  const resetAtMs =
+    resetAtSeconds === undefined ? undefined : resetAtSeconds * 1_000
 
-  if (tier === undefined && limit === undefined && remaining === undefined && resetAtMs === undefined) {
+  if (
+    tier === undefined &&
+    limit === undefined &&
+    remaining === undefined &&
+    resetAtMs === undefined
+  ) {
     return undefined
   }
 
@@ -649,14 +704,18 @@ function createEcosystemsRateLimitThrottleDelayMs(
   return Math.ceil(resetDelayMs / rateLimitStatus.remaining)
 }
 
-function formatEcosystemsRateLimitStatus(rateLimitStatus: EcosystemsRateLimitStatus) {
+function formatEcosystemsRateLimitStatus(
+  rateLimitStatus: EcosystemsRateLimitStatus
+) {
   const tierLabel = rateLimitStatus.tier ?? "unknown"
   const remainingLabel =
     rateLimitStatus.remaining === undefined
       ? "unknown"
       : String(rateLimitStatus.remaining)
   const limitLabel =
-    rateLimitStatus.limit === undefined ? "unknown" : String(rateLimitStatus.limit)
+    rateLimitStatus.limit === undefined
+      ? "unknown"
+      : String(rateLimitStatus.limit)
   const resetDelayMs =
     rateLimitStatus.resetAtMs === undefined
       ? undefined
@@ -669,7 +728,10 @@ function formatEcosystemsRateLimitStatus(rateLimitStatus: EcosystemsRateLimitSta
   return `ecosyste.ms rate limit: tier ${tierLabel}, remaining ${remainingLabel}/${limitLabel}, resets in ${resetDelayMs}ms.`
 }
 
-function createRetryableEcosystemsNetworkError(requestUrl: URL, error: unknown) {
+function createRetryableEcosystemsNetworkError(
+  requestUrl: URL,
+  error: unknown
+) {
   const reason = error instanceof Error ? error.message : String(error)
 
   return new RetryableEcosystemsFetchError(
@@ -728,7 +790,10 @@ function unwrapEcosystemsFetchError(error: unknown) {
     return error.originalError
   }
 
-  if (error instanceof RetryableEcosystemsFetchError && error.cause instanceof Error) {
+  if (
+    error instanceof RetryableEcosystemsFetchError &&
+    error.cause instanceof Error
+  ) {
     return error.cause
   }
 

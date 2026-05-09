@@ -1,4 +1,9 @@
-import type { CSSProperties, Dispatch, KeyboardEvent, SetStateAction } from "react"
+import type {
+  CSSProperties,
+  Dispatch,
+  KeyboardEvent,
+  SetStateAction,
+} from "react"
 
 import type { SortState } from "./types"
 
@@ -139,9 +144,13 @@ export function commitSuggestedTag({
   setSelectedTags: Dispatch<SetStateAction<string[]>>
 }) {
   setSelectedTags((currentTags) =>
-    currentTags.includes(suggestion) ? currentTags : [...currentTags, suggestion]
+    currentTags.includes(suggestion)
+      ? currentTags
+      : [...currentTags, suggestion]
   )
-  setSearchText((currentText) => `${getActiveToken(currentText).prefix}`.trimStart())
+  setSearchText((currentText) =>
+    `${getActiveToken(currentText).prefix}`.trimStart()
+  )
 }
 
 export function toggleSelectedTag(

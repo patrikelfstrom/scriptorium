@@ -18,7 +18,8 @@ export function createEcosystemsPackageRecord(
     description: ecosystemPackage.description ?? null,
     homepageUrl: ecosystemPackage.homepageUrl ?? null,
     primaryUrl:
-      ecosystemPackage.primaryUrl ?? createPrimaryUrl("npm", ecosystemPackage.name),
+      ecosystemPackage.primaryUrl ??
+      createPrimaryUrl("npm", ecosystemPackage.name),
     repositoryName: ecosystemPackage.repositoryName ?? null,
     npmPackageName: ecosystemPackage.name,
     publishedAt: ecosystemPackage.publishedAt?.toISOString() ?? null,

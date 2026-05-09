@@ -4,7 +4,10 @@ import {
   syncEcosystemsPopular,
 } from "../../server/catalog/admin-service"
 import { resetCatalogSchema } from "../../server/catalog/schema"
-import { createTestCatalogDatabase, seedCatalogPackage } from "../helpers/catalog-test-db"
+import {
+  createTestCatalogDatabase,
+  seedCatalogPackage,
+} from "../helpers/catalog-test-db"
 
 describe("ecosyste.ms popular sync", () => {
   afterEach(() => {
@@ -37,27 +40,29 @@ describe("ecosyste.ms popular sync", () => {
       },
     })
     const requestCalls: Array<{ url: URL; headers: Headers }> = []
-    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input)
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input)
 
-      if (url.includes("/registries/npmjs.org/packages")) {
-        const requestUrl = new URL(url)
-        requestCalls.push({
-          url: requestUrl,
-          headers: new Headers(init?.headers),
-        })
+        if (url.includes("/registries/npmjs.org/packages")) {
+          const requestUrl = new URL(url)
+          requestCalls.push({
+            url: requestUrl,
+            headers: new Headers(init?.headers),
+          })
 
-        if (requestUrl.searchParams.get("page") === "1") {
-          return jsonResponse(pageOnePackages)
+          if (requestUrl.searchParams.get("page") === "1") {
+            return jsonResponse(pageOnePackages)
+          }
+
+          if (requestUrl.searchParams.get("page") === "2") {
+            return jsonResponse([pageTwoPackage])
+          }
         }
 
-        if (requestUrl.searchParams.get("page") === "2") {
-          return jsonResponse([pageTwoPackage])
-        }
+        throw new Error(`Unexpected fetch URL: ${url}`)
       }
-
-      throw new Error(`Unexpected fetch URL: ${url}`)
-    })
+    )
 
     vi.stubGlobal("fetch", fetchMock)
 
@@ -97,7 +102,9 @@ describe("ecosyste.ms popular sync", () => {
         },
       ])
       expect(requestCalls[0]?.headers.get("Accept")).toBe("application/json")
-      expect(requestCalls[0]?.headers.get("User-Agent")).toBe("scriptorium-test/0.1.1")
+      expect(requestCalls[0]?.headers.get("User-Agent")).toBe(
+        "scriptorium-test/0.1.1"
+      )
       expect(requestCalls[0]?.headers.get("From")).toBe("info@scriptorium.dev")
 
       const packageRows = await database.client.execute({
@@ -321,7 +328,9 @@ describe("ecosyste.ms popular sync", () => {
         ],
       })
 
-      const result = await backfillLastPublishedAtFromRawEcosystems(database.client)
+      const result = await backfillLastPublishedAtFromRawEcosystems(
+        database.client
+      )
       const packageRow = await database.client.execute({
         sql: `
           SELECT last_published_at
@@ -332,7 +341,9 @@ describe("ecosyste.ms popular sync", () => {
       })
 
       expect(result).toEqual({ packageCount: 1, updatedCount: 1 })
-      expect(packageRow.rows[0]?.last_published_at).toBe("2026-02-14T12:00:00.000Z")
+      expect(packageRow.rows[0]?.last_published_at).toBe(
+        "2026-02-14T12:00:00.000Z"
+      )
     } finally {
       await database.cleanup()
     }
@@ -342,12 +353,13 @@ describe("ecosyste.ms popular sync", () => {
     vi.useFakeTimers()
 
     const database = await createTestCatalogDatabase()
-    const fetchMock = vi.fn(async () =>
-      new Response('{"error":"internal server error"}', {
-        status: 500,
-        statusText: "Internal Server Error",
-        headers: { "Content-Type": "application/json" },
-      })
+    const fetchMock = vi.fn(
+      async () =>
+        new Response('{"error":"internal server error"}', {
+          status: 500,
+          statusText: "Internal Server Error",
+          headers: { "Content-Type": "application/json" },
+        })
     )
 
     vi.stubGlobal("fetch", fetchMock)
@@ -362,7 +374,7 @@ describe("ecosyste.ms popular sync", () => {
           userAgent: "scriptorium-test/0.1.1",
         })
       ).rejects.toThrow(
-        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=50&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error'
+        "Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=1&per_page=50&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error"
       )
 
       await vi.advanceTimersByTimeAsync(30_000)
@@ -419,7 +431,7 @@ describe("ecosyste.ms popular sync", () => {
           userAgent: "scriptorium-test/0.1.1",
         })
       ).rejects.toThrow(
-        'Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=2&per_page=50&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error'
+        "Failed to fetch ecosyste.ms packages from https://packages.ecosyste.ms/api/v1/registries/npmjs.org/packages?page=2&per_page=50&updated_after=2025-01-01T00%3A00%3A00.000Z&mailto=info%40scriptorium.dev&sort=downloads&order=desc: 500 Internal Server Error"
       )
 
       await vi.advanceTimersByTimeAsync(30_000)
@@ -867,7 +879,8 @@ function createEcosystemsFixture(input: {
         : input.homepage,
     licenses: "MIT",
     normalized_licenses: ["MIT"],
-    repository_url: input.repositoryUrl ?? `https://github.com/example/${input.name}`,
+    repository_url:
+      input.repositoryUrl ?? `https://github.com/example/${input.name}`,
     keywords_array: input.keywords ?? [input.name],
     namespace: null,
     versions_count: 10,
@@ -879,7 +892,8 @@ function createEcosystemsFixture(input: {
     created_at: "2022-01-01T00:00:00.000Z",
     updated_at: "2026-04-02T00:00:00.000Z",
     registry_url:
-      input.registryUrl ?? `https://www.npmjs.com/package/${encodeURIComponent(input.name)}`,
+      input.registryUrl ??
+      `https://www.npmjs.com/package/${encodeURIComponent(input.name)}`,
     install_command: `npm install ${input.name}`,
     documentation_url: null,
     metadata: {},

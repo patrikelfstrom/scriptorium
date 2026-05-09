@@ -55,9 +55,7 @@ export function clampCatalogLimit(value?: string | null) {
   return Math.min(Math.max(resolved, 1), MAX_CATALOG_SEARCH_LIMIT)
 }
 
-export function normalizeCatalogSort(
-  value?: string | null
-): CatalogSortColumn {
+export function normalizeCatalogSort(value?: string | null): CatalogSortColumn {
   return CATALOG_SORT_COLUMNS.includes(value as CatalogSortColumn)
     ? (value as CatalogSortColumn)
     : "name"

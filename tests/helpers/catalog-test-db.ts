@@ -62,7 +62,8 @@ export async function seedCatalogPackage(
     downloadsPeriod: input.downloadsPeriod ?? null,
     dependentPackagesCount: input.dependentPackagesCount ?? 0,
     rawEcosystemsFetchedAt:
-      input.rawEcosystemsFetchedAt ?? new Date("2026-01-01T00:00:00.000Z").toISOString(),
+      input.rawEcosystemsFetchedAt ??
+      new Date("2026-01-01T00:00:00.000Z").toISOString(),
     npmSyncedAt: input.npmSyncedAt ?? null,
     githubSyncedAt: input.githubSyncedAt ?? null,
     isActive: input.isActive ?? 1,

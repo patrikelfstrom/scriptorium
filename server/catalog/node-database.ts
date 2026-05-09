@@ -42,7 +42,9 @@ export function resolveNodeCatalogDatabaseConfig(
   }
 
   if (options.allowLocalFallback === false) {
-    throw new Error("TURSO_DATABASE_URL is required when local fallback is disabled.")
+    throw new Error(
+      "TURSO_DATABASE_URL is required when local fallback is disabled."
+    )
   }
 
   const baseDirectory =

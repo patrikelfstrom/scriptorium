@@ -46,7 +46,8 @@ export function normalizeEcosystemsPackage(entry: unknown) {
     publishedAt: latestReleasePublishedAt ?? null,
     stars: normalizeNullableInteger(repoMetadata?.stargazers_count),
     downloads: normalizeInteger(candidate.downloads),
-    downloadsPeriod: normalizeOptionalString(candidate.downloads_period) ?? null,
+    downloadsPeriod:
+      normalizeOptionalString(candidate.downloads_period) ?? null,
     dependentPackagesCount,
     npmTags: normalizeStringArray(candidate.keywords_array),
     githubTags: normalizeStringArray(repoMetadata?.topics),
@@ -67,7 +68,10 @@ export function extractLastPublishedAtFromRawJson(rawJson: unknown) {
   }
 }
 
-export function shouldDeleteEcosystemsPackageRow(rawJson: unknown, now = new Date()) {
+export function shouldDeleteEcosystemsPackageRow(
+  rawJson: unknown,
+  now = new Date()
+) {
   if (typeof rawJson !== "string") {
     return true
   }
@@ -77,7 +81,9 @@ export function shouldDeleteEcosystemsPackageRow(rawJson: unknown, now = new Dat
 
     return !meetsEcosystemsRetentionCriteria({
       dependentPackagesCount: normalizeInteger(parsed.dependent_packages_count),
-      latestReleasePublishedAt: normalizeTimestamp(parsed.latest_release_published_at),
+      latestReleasePublishedAt: normalizeTimestamp(
+        parsed.latest_release_published_at
+      ),
       now,
     })
   } catch {

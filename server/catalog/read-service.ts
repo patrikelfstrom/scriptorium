@@ -104,7 +104,9 @@ export async function searchCatalog(
       dependentPackagesCount: normalizeNumber(row.dependent_packages_count),
       tags: tagMap.get(String(row.package_key)) ?? [],
     })),
-    nextCursor: hasMore ? encodeCatalogCursor(params.offset + params.limit) : null,
+    nextCursor: hasMore
+      ? encodeCatalogCursor(params.offset + params.limit)
+      : null,
     totalApprox: normalizeNumber(countResult.rows[0]?.total),
   }
 }

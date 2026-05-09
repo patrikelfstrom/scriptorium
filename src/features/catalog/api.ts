@@ -57,9 +57,12 @@ export async function fetchCatalogSearchPage(
     searchParams.set("cursor", input.cursor)
   }
 
-  const response = await fetch(createCatalogApiUrl("/api/search", searchParams), {
-    signal,
-  })
+  const response = await fetch(
+    createCatalogApiUrl("/api/search", searchParams),
+    {
+      signal,
+    }
+  )
 
   return parseCatalogResponse<CatalogSearchResponse>(
     response,

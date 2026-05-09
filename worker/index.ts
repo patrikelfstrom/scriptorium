@@ -3,10 +3,7 @@ import {
   parseCatalogTagListParams,
 } from "../shared/catalog"
 import { createCatalogDatabaseClient } from "../server/catalog/database"
-import {
-  listCatalogTags,
-  searchCatalog,
-} from "../server/catalog/read-service"
+import { listCatalogTags, searchCatalog } from "../server/catalog/read-service"
 
 export type WorkerEnv = {
   SCRIPTORIUM_DATA_DIR?: string

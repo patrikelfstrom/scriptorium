@@ -58,7 +58,10 @@ export async function replacePackageTags(
   source: string,
   rawTags: string[]
 ) {
-  await client.batch(createReplacePackageTagsStatements(packageKey, source, rawTags), "write")
+  await client.batch(
+    createReplacePackageTagsStatements(packageKey, source, rawTags),
+    "write"
+  )
 }
 
 export function createUpsertPackageStatement(

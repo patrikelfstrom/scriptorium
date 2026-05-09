@@ -54,12 +54,16 @@ describe("catalog core helpers", () => {
   it("normalizes tags and labels", () => {
     expect(normalizeTagValue("Front End")).toBe("front-end")
     expect(normalizeTagValue("cms")).toBe("content-management-system")
-    expect(createTagLabel("static-site-generator")).toBe("static site generator")
+    expect(createTagLabel("static-site-generator")).toBe(
+      "static site generator"
+    )
   })
 
   it("builds package keys and URLs", () => {
     expect(createPackageKey("npm", "react")).toBe("npm:react")
-    expect(createPrimaryUrl("gh", "facebook/react")).toBe("https://github.com/facebook/react")
+    expect(createPrimaryUrl("gh", "facebook/react")).toBe(
+      "https://github.com/facebook/react"
+    )
     expect(createPrimaryUrl("npm", "@scope/pkg")).toBe(
       "https://www.npmjs.com/package/%40scope/pkg"
     )

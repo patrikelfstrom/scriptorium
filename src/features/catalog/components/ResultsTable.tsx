@@ -6,10 +6,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Link as LinkIcon } from "lucide-react"
 import type { Dispatch, ReactNode, SetStateAction } from "react"
-import {
-  useEffect,
-  useRef,
-} from "react"
+import { useEffect, useRef } from "react"
 
 import { Badge } from "@/components/ui/badge"
 
@@ -180,7 +177,9 @@ export function ResultsTable({
                 className="rounded-full transition-transform outline-none hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-primary/20"
               >
                 <Badge
-                  className={isSelected ? "shadow-sm ring-2 ring-current/20" : undefined}
+                  className={
+                    isSelected ? "shadow-sm ring-2 ring-current/20" : undefined
+                  }
                   style={getTagColorStyle(tag, isSelected, isDarkMode)}
                 >
                   {tag}
@@ -192,6 +191,7 @@ export function ResultsTable({
       ),
     },
   ]
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table's useReactTable API is required here.
   const table = useReactTable({
     data: rows,
     columns,
@@ -228,14 +228,20 @@ export function ResultsTable({
   useEffect(() => {
     const scrollElement = scrollRef.current
 
-    if (!scrollElement || !hasNextPage || isFetchingNextPage || totalRowCount === 0) {
+    if (
+      !scrollElement ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      totalRowCount === 0
+    ) {
       return
     }
 
     const maybeLoadMore = () => {
       const visibleEndIndex =
         Math.ceil(
-          (scrollElement.scrollTop + scrollElement.clientHeight) / ESTIMATED_ROW_HEIGHT
+          (scrollElement.scrollTop + scrollElement.clientHeight) /
+            ESTIMATED_ROW_HEIGHT
         ) + LOAD_AHEAD_ROWS
 
       if (visibleEndIndex >= rows.length && rows.length < totalRowCount) {
@@ -295,10 +301,7 @@ export function ResultsTable({
       data-slot="table-container"
       className="relative min-h-0 flex-1 overflow-auto"
     >
-      <table
-        data-slot="table"
-        className="grid w-full caption-bottom text-sm"
-      >
+      <table data-slot="table" className="grid w-full caption-bottom text-sm">
         <thead
           data-slot="table-header"
           className="sticky top-0 z-20 grid bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 [&_tr]:border-b [&_tr]:border-border/60"
@@ -313,10 +316,10 @@ export function ResultsTable({
               {headerGroup.headers.map((header) => {
                 const alignRight = header.id === "stars"
                 const sortable =
-                  header.id === "name"
-                  || header.id === "stars"
-                  || header.id === "published"
-                  || header.id === "tags"
+                  header.id === "name" ||
+                  header.id === "stars" ||
+                  header.id === "published" ||
+                  header.id === "tags"
 
                 return (
                   <th
@@ -324,7 +327,10 @@ export function ResultsTable({
                     data-slot="table-head"
                     aria-sort={
                       sortable
-                        ? getAriaSort(header.id as SortState["column"], sortState)
+                        ? getAriaSort(
+                            header.id as SortState["column"],
+                            sortState
+                          )
                         : undefined
                     }
                     className={`flex h-11 items-center px-4 text-left text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase ${
@@ -363,31 +369,34 @@ export function ResultsTable({
                   transform: `translateY(${start}px)`,
                 }}
               >
-                {loadedRow
-                  ? loadedRow.getVisibleCells().map((cell) => {
-                      const alignRight = cell.column.id === "stars"
+                {loadedRow ? (
+                  loadedRow.getVisibleCells().map((cell) => {
+                    const alignRight = cell.column.id === "stars"
 
-                      return (
-                        <td
-                          key={cell.id}
-                          data-slot="table-cell"
-                          className={`px-4 py-4 align-middle ${
-                            cell.column.id === "name"
-                              ? "min-w-0 font-medium text-foreground"
-                              : ""
-                          } ${
-                            cell.column.id === "published"
-                              ? "text-muted-foreground tabular-nums"
-                              : ""
-                          } ${alignRight ? "text-right text-muted-foreground tabular-nums" : ""}`}
-                        >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
-                      )
-                    })
-                  : (
-                      <LoadingRowCells />
-                    )}
+                    return (
+                      <td
+                        key={cell.id}
+                        data-slot="table-cell"
+                        className={`px-4 py-4 align-middle ${
+                          cell.column.id === "name"
+                            ? "min-w-0 font-medium text-foreground"
+                            : ""
+                        } ${
+                          cell.column.id === "published"
+                            ? "text-muted-foreground tabular-nums"
+                            : ""
+                        } ${alignRight ? "text-right text-muted-foreground tabular-nums" : ""}`}
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </td>
+                    )
+                  })
+                ) : (
+                  <LoadingRowCells />
+                )}
               </tr>
             )
           })}
@@ -426,7 +435,9 @@ function TableMessage({
             <td
               colSpan={4}
               className={`px-4 py-10 text-center text-sm ${
-                tone === "destructive" ? "text-destructive" : "text-muted-foreground"
+                tone === "destructive"
+                  ? "text-destructive"
+                  : "text-muted-foreground"
               }`}
             >
               {message}
@@ -451,7 +462,10 @@ function LoadingRowCells() {
         data-slot="table-cell"
         className="px-4 py-4 text-right align-middle text-muted-foreground tabular-nums"
       >
-        <div className="ml-auto h-4 w-12 rounded bg-muted/50" aria-hidden="true" />
+        <div
+          className="ml-auto h-4 w-12 rounded bg-muted/50"
+          aria-hidden="true"
+        />
       </td>
       <td data-slot="table-cell" className="px-4 py-4 align-middle">
         <div className="h-4 w-24 rounded bg-muted/40" aria-hidden="true" />

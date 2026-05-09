@@ -1,11 +1,5 @@
-import {
-  Moon,
-  Sun,
-} from "lucide-react"
-import {
-  useId,
-  useState,
-} from "react"
+import { Moon, Sun } from "lucide-react"
+import { useId, useState } from "react"
 
 import { useTheme } from "@/components/theme-provider"
 
@@ -51,9 +45,9 @@ export function CatalogPage() {
 
   const allTags = availableTags.length
     ? availableTags
-    : Array.from(new Set(rows.flatMap((row) => row.tags.map(normalizeValue)))).sort(
-        (left, right) => left.localeCompare(right)
-      )
+    : Array.from(
+        new Set(rows.flatMap((row) => row.tags.map(normalizeValue)))
+      ).sort((left, right) => left.localeCompare(right))
   const selectedTagSet = new Set(selectedTags.map(normalizeValue))
   const { token: activeToken } = getActiveToken(searchText)
   const tagSuggestions = getTagSuggestions(activeToken, selectedTags, allTags)
@@ -123,7 +117,7 @@ export function CatalogPage() {
             </div>
           </div>
         </div>
-        <div className="min-h-0 flex flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <ResultsTable
             errorMessage={errorMessage}
             fetchNextPage={fetchNextPage}

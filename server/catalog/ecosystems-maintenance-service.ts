@@ -18,7 +18,9 @@ export async function pruneEcosystemsPackages(
   `)
 
   const packageKeysToDelete = result.rows
-    .filter((row) => shouldDeleteEcosystemsPackageRow(row.raw_json, options.now))
+    .filter((row) =>
+      shouldDeleteEcosystemsPackageRow(row.raw_json, options.now)
+    )
     .map((row) => String(row.package_key))
 
   if (packageKeysToDelete.length === 0) {

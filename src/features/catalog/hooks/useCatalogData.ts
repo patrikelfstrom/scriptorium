@@ -1,12 +1,6 @@
-import {
-  useInfiniteQuery,
-  useQuery,
-} from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 
-import {
-  fetchCatalogSearchPage,
-  fetchCatalogTags,
-} from "../api"
+import { fetchCatalogSearchPage, fetchCatalogTags } from "../api"
 import { mapCatalogItemsToRows } from "../mappers"
 import { normalizeValue } from "../helpers"
 import type { SortState } from "../types"
