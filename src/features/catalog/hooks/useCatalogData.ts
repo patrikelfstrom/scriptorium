@@ -85,11 +85,10 @@ export function useCatalogData(input: {
     .map((item) => normalizeValue(item.id || item.label))
     .filter(Boolean)
     .sort((left, right) => left.localeCompare(right))
-  const isLoading = (searchQueries[0]?.isLoading ?? true) || tagsQuery.isLoading
+  const isLoading = getIsCatalogSearchLoading(searchQueries)
   const isFetchingRows = searchQueries.some((query) => query.isFetching)
   const errorMessage = getErrorMessage(
-    ...searchQueries.map((query) => query.error),
-    tagsQuery.error
+    ...searchQueries.map((query) => query.error)
   )
 
   function loadRowsForRange(startIndex: number, endIndex: number) {
@@ -153,4 +152,10 @@ function getErrorMessage(...errors: Array<unknown>) {
   }
 
   return undefined
+}
+
+export function getIsCatalogSearchLoading(
+  searchQueries: Array<{ isLoading?: boolean }>
+) {
+  return searchQueries[0]?.isLoading ?? true
 }
