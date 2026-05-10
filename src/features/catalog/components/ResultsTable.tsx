@@ -155,7 +155,7 @@ export function ResultsTable({
       <table data-slot="table" className="grid w-full caption-bottom text-sm">
         <thead
           data-slot="table-header"
-          className="sticky top-0 z-20 grid bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 [&_tr]:border-b [&_tr]:border-border/60"
+          className="sticky top-0 z-10 grid bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 [&_tr]:border-b [&_tr]:border-border/60"
         >
           <tr
             data-slot="table-row"

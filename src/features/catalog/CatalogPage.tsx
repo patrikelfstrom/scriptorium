@@ -66,7 +66,7 @@ export function CatalogPage() {
   return (
     <main className="h-svh">
       <section className="flex h-full flex-col overflow-hidden bg-background/90 backdrop-blur">
-        <div className="border-b border-border/60 bg-muted/30 px-4 py-4 sm:px-6">
+        <div className="relative z-30 border-b border-border/60 bg-muted/30 px-4 py-4 sm:px-6">
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-4">
               <h1 className="text-lg font-semibold tracking-[0.2em] text-foreground uppercase">
@@ -117,7 +117,7 @@ export function CatalogPage() {
             </div>
           </div>
         </div>
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative z-0 flex min-h-0 flex-1 overflow-hidden">
           <ResultsTable
             errorMessage={errorMessage}
             isDarkMode={isDarkMode}
