@@ -8,25 +8,45 @@ export type CatalogDatabaseBindings = {
   TURSO_AUTH_TOKEN?: string
 }
 
+export function getCatalogDatabaseUrl(bindings: CatalogDatabaseBindings) {
+  if (bindings.TURSO_DATABASE_URL) {
+    return bindings.TURSO_DATABASE_URL
+  }
+
+  return resolveLocalDatabaseUrl(bindings)
+}
+
+export function getCatalogDatabaseIdentity(bindings: CatalogDatabaseBindings) {
+  const databaseUrl = getCatalogDatabaseUrl(bindings)
+
+  if (!databaseUrl) {
+    throw new Error(
+      "TURSO_DATABASE_URL is required for this runtime. Use a Node-based local runtime or set SCRIPTORIUM_DATA_DIR for local fallback."
+    )
+  }
+
+  return databaseUrl
+}
+
 export function createCatalogDatabaseClient(
   bindings: CatalogDatabaseBindings
 ): CatalogDatabaseClient {
+  const databaseUrl = getCatalogDatabaseUrl(bindings)
+
+  if (!databaseUrl) {
+    throw new Error(
+      "TURSO_DATABASE_URL is required for this runtime. Use a Node-based local runtime or set SCRIPTORIUM_DATA_DIR for local fallback."
+    )
+  }
+
   if (!bindings.TURSO_DATABASE_URL) {
-    const localDatabaseUrl = resolveLocalDatabaseUrl(bindings)
-
-    if (!localDatabaseUrl) {
-      throw new Error(
-        "TURSO_DATABASE_URL is required for this runtime. Use a Node-based local runtime or set SCRIPTORIUM_DATA_DIR for local fallback."
-      )
-    }
-
     return createClient({
-      url: localDatabaseUrl,
+      url: databaseUrl,
     })
   }
 
   return createClient({
-    url: bindings.TURSO_DATABASE_URL,
+    url: databaseUrl,
     authToken: bindings.TURSO_AUTH_TOKEN,
   })
 }

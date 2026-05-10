@@ -1,7 +1,10 @@
 import { useState } from "react"
 import { useQueries, useQuery } from "@tanstack/react-query"
 
-import { DEFAULT_CATALOG_SEARCH_LIMIT } from "../../../../shared/catalog"
+import {
+  DEFAULT_CATALOG_SEARCH_LIMIT,
+  type CatalogSearchResponse,
+} from "../../../../shared/catalog"
 
 import { fetchCatalogSearchPage, fetchCatalogTags } from "../api"
 import { mapCatalogItemsToRows } from "../mappers"
@@ -51,12 +54,15 @@ export function useCatalogData(input: {
           },
           signal
         ),
+      placeholderData: (previousData: CatalogSearchResponse | undefined) =>
+        previousData,
       staleTime: 60_000,
     })),
   })
   const tagsQuery = useQuery({
     queryKey: ["catalog-tags"],
     queryFn: ({ signal }) => fetchCatalogTags(signal),
+    staleTime: 10 * 60_000,
   })
   const rowsByIndex = new Map<
     number,
