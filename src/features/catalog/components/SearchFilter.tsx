@@ -1,5 +1,11 @@
 import { Search, X } from "lucide-react"
-import type { Dispatch, SetStateAction } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react"
 
 import { Badge } from "@/components/ui/badge"
 
@@ -33,10 +39,42 @@ export function SearchFilter({
   setSelectedTags: Dispatch<SetStateAction<string[]>>
   tagSuggestions: string[]
 }) {
+  const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false)
+  const suggestionsRef = useRef<HTMLDivElement>(null)
   const normalizedSuggestionIndex =
     activeSuggestionIndex >= 0 && activeSuggestionIndex < tagSuggestions.length
       ? activeSuggestionIndex
       : -1
+
+  useEffect(() => {
+    if (tagSuggestions.length > 0) {
+      return
+    }
+
+    setIsSuggestionsOpen(false)
+    setActiveSuggestionIndex(-1)
+  }, [setActiveSuggestionIndex, tagSuggestions.length])
+
+  useEffect(() => {
+    if (!isSuggestionsOpen) {
+      return
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (suggestionsRef.current?.contains(event.target as Node)) {
+        return
+      }
+
+      setIsSuggestionsOpen(false)
+      setActiveSuggestionIndex(-1)
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown)
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown)
+    }
+  }, [isSuggestionsOpen, setActiveSuggestionIndex])
 
   return (
     <div className="max-w-2xl min-w-0 flex-1">
@@ -63,13 +101,16 @@ export function SearchFilter({
             onChange={(event) => {
               setSearchText(event.target.value)
               setActiveSuggestionIndex(-1)
+              setIsSuggestionsOpen(true)
             }}
             onKeyDown={(event) =>
               handleFilterKeyDown({
                 event,
+                isSuggestionsOpen,
                 suggestions: tagSuggestions,
                 activeSuggestion,
                 setActiveSuggestionIndex,
+                setIsSuggestionsOpen,
                 setSearchText,
                 setSelectedTags,
                 selectedTags,
@@ -79,14 +120,15 @@ export function SearchFilter({
             placeholder="Type to search. Press Tab to browse tags, then Space to add one."
             aria-autocomplete="list"
             aria-controls={`${inputId}-suggestions`}
-            aria-expanded={tagSuggestions.length > 0}
+            aria-expanded={isSuggestionsOpen && tagSuggestions.length > 0}
             aria-label="Filter tooling by text and tag"
             role="combobox"
           />
         </div>
-        {tagSuggestions.length > 0 ? (
+        {isSuggestionsOpen && tagSuggestions.length > 0 ? (
           <div
             id={`${inputId}-suggestions`}
+            ref={suggestionsRef}
             role="listbox"
             className="absolute right-0 left-0 z-20 mt-2 overflow-hidden rounded-2xl border border-border/70 bg-background/95 shadow-[0_24px_60px_-42px_rgba(8,34,64,0.8)] backdrop-blur"
           >
@@ -100,13 +142,15 @@ export function SearchFilter({
                   role="option"
                   aria-selected={isActive}
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() =>
+                  onClick={() => {
                     commitSuggestedTag({
                       suggestion: tag,
                       setSearchText,
                       setSelectedTags,
                     })
-                  }
+                    setActiveSuggestionIndex(-1)
+                    setIsSuggestionsOpen(false)
+                  }}
                   className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors ${
                     isActive
                       ? "bg-muted text-foreground"

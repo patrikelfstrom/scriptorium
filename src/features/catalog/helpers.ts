@@ -86,36 +86,55 @@ export function getTagSuggestions(
 
 export function handleFilterKeyDown({
   event,
+  isSuggestionsOpen,
   suggestions,
   activeSuggestion,
   setActiveSuggestionIndex,
+  setIsSuggestionsOpen,
   setSearchText,
   setSelectedTags,
   selectedTags,
 }: {
   event: KeyboardEvent<HTMLInputElement>
+  isSuggestionsOpen: boolean
   suggestions: string[]
   activeSuggestion?: string
   setActiveSuggestionIndex: Dispatch<SetStateAction<number>>
+  setIsSuggestionsOpen: Dispatch<SetStateAction<boolean>>
   setSearchText: Dispatch<SetStateAction<string>>
   setSelectedTags: Dispatch<SetStateAction<string[]>>
   selectedTags: string[]
 }) {
-  if (event.key === "Tab" && suggestions.length > 0) {
+  if (event.key === "Tab" && isSuggestionsOpen && suggestions.length > 0) {
     event.preventDefault()
     setActiveSuggestionIndex((currentIndex) =>
-      currentIndex < 0 ? 0 : (currentIndex + 1) % suggestions.length
+      currentIndex < 0
+        ? event.shiftKey
+          ? suggestions.length - 1
+          : 0
+        : event.shiftKey
+          ? (currentIndex - 1 + suggestions.length) % suggestions.length
+          : (currentIndex + 1) % suggestions.length
     )
     return
   }
 
-  if ((event.key === " " || event.key === "Enter") && activeSuggestion) {
+  if (event.key === "Enter" && isSuggestionsOpen) {
+    event.preventDefault()
+    setActiveSuggestionIndex(-1)
+    setIsSuggestionsOpen(false)
+    return
+  }
+
+  if (event.key === " " && activeSuggestion) {
     event.preventDefault()
     commitSuggestedTag({
       suggestion: activeSuggestion,
       setSearchText,
       setSelectedTags,
     })
+    setActiveSuggestionIndex(-1)
+    setIsSuggestionsOpen(false)
     return
   }
 
@@ -131,6 +150,7 @@ export function handleFilterKeyDown({
 
   if (event.key === "Escape") {
     setActiveSuggestionIndex(-1)
+    setIsSuggestionsOpen(false)
   }
 }
 
