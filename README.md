@@ -31,7 +31,7 @@ Set these secrets in the Cloudflare Worker runtime, not in GitHub Actions:
 - `TURSO_DATABASE_URL`
 - `TURSO_AUTH_TOKEN`
 
-The scheduled catalog refresh workflow still reads Turso directly from GitHub Actions, so keep `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `GITHUB_TOKEN` configured as GitHub repository secrets for that job as well.
+The scheduled catalog refresh workflow still reads Turso directly from GitHub Actions, so keep `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `GITHUB_TOKEN` configured as GitHub repository secrets for that job as well. The default workflow refreshes the top `30,000` packages in `14` stable shards, running `2` shards per day for full weekly coverage.
 
 ## Local development
 
@@ -92,6 +92,7 @@ The public read API is:
 - `pnpm sync:npm-catalog`
 
 This command updates the database directly. It does not generate repo data files or commit changes.
+It can also be sharded by setting `NPM_SYNC_TOP_PACKAGE_LIMIT`, `NPM_SYNC_SHARD_COUNT`, and `NPM_SYNC_SHARD_INDEX`.
 
 ## Build and validation
 
@@ -110,7 +111,10 @@ pnpm verify
 - `TURSO_DATABASE_URL`: Turso/libSQL database URL for the worker and sync scripts
 - `TURSO_AUTH_TOKEN`: Turso auth token when using remote Turso
 - `GITHUB_TOKEN`: required GitHub token for repository stars/topics enrichment during sync
-- `NPM_SYNC_LIMIT`: optional total number of npm packages to sync, defaults to `10000`
+- `NPM_SYNC_LIMIT`: optional backward-compatible alias for `NPM_SYNC_TOP_PACKAGE_LIMIT`
+- `NPM_SYNC_TOP_PACKAGE_LIMIT`: optional number of top download-count packages eligible for sync, defaults to `10000`
+- `NPM_SYNC_SHARD_COUNT`: optional stable shard count for rolling syncs
+- `NPM_SYNC_SHARD_INDEX`: optional zero-based shard index to sync from the selected top package set
 - `NPM_REGISTRY_BASE_URL`: optional npm registry API override, defaults to `https://registry.npmjs.org`
 - `GITHUB_GRAPHQL_URL`: optional GitHub GraphQL API override, defaults to `https://api.github.com/graphql`
 - `SCRIPTORIUM_DATA_DIR`: optional local fallback database directory

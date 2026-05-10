@@ -9,6 +9,7 @@ import {
   type ParsedCatalogSearchParams,
 } from "../../shared/catalog"
 import type { CatalogDatabaseClient } from "./database"
+import { createVisiblePackageSql } from "./package-removal"
 import { normalizeTagValue } from "./tag-normalization"
 
 export async function searchCatalog(
@@ -102,6 +103,8 @@ export async function listCatalogTags(
         COUNT(DISTINCT mt.package_name) AS package_count
       FROM tags t
       JOIN merged_tags mt ON mt.tag_id = t.tag_id
+      JOIN packages p ON p.package_name = mt.package_name
+      WHERE ${createVisiblePackageSql("p")}
       GROUP BY t.tag_id, t.label
       ORDER BY package_count DESC, t.tag_id ASC
       LIMIT 500
@@ -118,7 +121,7 @@ export async function listCatalogTags(
 }
 
 function buildSearchWhereClause(queryTerms: string[], tags: string[]) {
-  const clauses = ["WHERE 1 = 1"]
+  const clauses = [`WHERE ${createVisiblePackageSql("p")}`]
   const args: Array<string | number> = []
 
   for (const term of queryTerms) {
@@ -264,7 +267,7 @@ async function resolveTotalApproximation(
 
   const countSql =
     args.length === 0
-      ? "SELECT COUNT(*) AS total FROM packages"
+      ? `SELECT COUNT(*) AS total FROM packages p WHERE ${createVisiblePackageSql("p")}`
       : `
         WITH merged_tags AS (
           ${MERGED_TAGS_SQL}

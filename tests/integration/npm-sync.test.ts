@@ -48,7 +48,7 @@ describe("npm catalog sync", () => {
     try {
       const result = await syncNpmCatalog(database.client, {
         githubToken: "test-token",
-        syncLimit: 10_000,
+        topPackageLimit: 10_000,
         downloadCountsEntries: [
           { packageName: "react", packageDownloads: 1000 },
         ],
@@ -163,7 +163,7 @@ describe("npm catalog sync", () => {
     try {
       await syncNpmCatalog(database.client, {
         githubToken: "test-token",
-        syncLimit: 10_000,
+        topPackageLimit: 10_000,
         downloadCountsEntries: [
           { packageName: "react", packageDownloads: 1000 },
           { packageName: "vue", packageDownloads: 800 },
@@ -172,7 +172,7 @@ describe("npm catalog sync", () => {
 
       await syncNpmCatalog(database.client, {
         githubToken: "test-token",
-        syncLimit: 10_000,
+        topPackageLimit: 10_000,
         downloadCountsEntries: [
           { packageName: "react", packageDownloads: 1200 },
         ],
@@ -231,7 +231,7 @@ describe("npm catalog sync", () => {
     try {
       await syncNpmCatalog(database.client, {
         githubToken: "test-token",
-        syncLimit: 10_000,
+        topPackageLimit: 10_000,
         downloadCountsEntries: [
           { packageName: "svelte", packageDownloads: 700 },
         ],
@@ -324,7 +324,7 @@ describe("npm catalog sync", () => {
     try {
       await syncNpmCatalog(database.client, {
         githubToken: "test-token",
-        syncLimit: 10_000,
+        topPackageLimit: 10_000,
         downloadCountsEntries: [
           { packageName: "react", packageDownloads: 1000 },
         ],
@@ -332,7 +332,7 @@ describe("npm catalog sync", () => {
 
       await syncNpmCatalog(database.client, {
         githubToken: "test-token",
-        syncLimit: 10_000,
+        topPackageLimit: 10_000,
         downloadCountsEntries: [
           { packageName: "react", packageDownloads: 1100 },
         ],
@@ -443,7 +443,7 @@ describe("npm catalog sync", () => {
     try {
       const result = await syncNpmCatalog(database.client, {
         githubToken: "test-token",
-        syncLimit: 10_000,
+        topPackageLimit: 10_000,
         downloadCountsEntries: [
           { packageName: "react", packageDownloads: 1000 },
           { packageName: "bad-repo", packageDownloads: 900 },
@@ -557,13 +557,192 @@ describe("npm catalog sync", () => {
       await expect(
         syncNpmCatalog(database.client, {
           githubToken: "",
-          syncLimit: 10_000,
+          topPackageLimit: 10_000,
           downloadCountsEntries: [
             { packageName: "react", packageDownloads: 1000 },
           ],
         })
       ).rejects.toThrow("GITHUB_TOKEN is required for npm catalog sync.")
     } finally {
+      await database.cleanup()
+    }
+  })
+
+  it("marks npm security holding packages as removed and skips future resyncs", async () => {
+    const database = await createTestCatalogDatabase()
+    let npmRequestCount = 0
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (
+        url ===
+        "https://registry.npmjs.org/%40patrtorg%2Fsit-voluptate-quibusdam"
+      ) {
+        npmRequestCount += 1
+
+        return createJsonResponse({
+          "dist-tags": { latest: "0.0.1-security.1" },
+          time: {
+            "0.0.1-security.1": "2026-04-01T00:00:00.000Z",
+          },
+          versions: {
+            "0.0.1-security.1": {
+              description: "Security holding package",
+              homepage: "https://github.com/npm/security-holder#readme",
+              repository: {
+                url: "https://github.com/npm/security-holder",
+              },
+            },
+          },
+        })
+      }
+
+      if (url === "https://api.github.com/graphql") {
+        throw new Error(
+          "GitHub should not be queried for npm security holding packages."
+        )
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const firstResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          {
+            packageName: "@patrtorg/sit-voluptate-quibusdam",
+            packageDownloads: 1000,
+          },
+        ],
+      })
+      const secondResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          {
+            packageName: "@patrtorg/sit-voluptate-quibusdam",
+            packageDownloads: 1000,
+          },
+        ],
+      })
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT
+            repository_url,
+            package_description,
+            package_downloads,
+            package_last_published_at
+          FROM packages
+          WHERE package_name = ?
+        `,
+        args: ["@patrtorg/sit-voluptate-quibusdam"],
+      })
+      const packageTags = await database.client.execute({
+        sql: `SELECT tag_id FROM package_tags WHERE package_name = ?`,
+        args: ["@patrtorg/sit-voluptate-quibusdam"],
+      })
+      const repositoryTags = await database.client.execute({
+        sql: `SELECT tag_id FROM repository_tags WHERE package_name = ?`,
+        args: ["@patrtorg/sit-voluptate-quibusdam"],
+      })
+
+      expect(firstResult).toEqual({ syncedCount: 1 })
+      expect(secondResult).toEqual({ syncedCount: 0 })
+      expect(npmRequestCount).toBe(1)
+      expect(packageRows.rows[0]).toMatchObject({
+        repository_url: "https://github.com/npm/security-holder",
+        package_description: "Security holding package",
+        package_downloads: 1000,
+        package_last_published_at: "2026-04-01T00:00:00.000Z",
+      })
+      expect(packageTags.rows).toEqual([])
+      expect(repositoryTags.rows).toEqual([])
+    } finally {
+      vi.unstubAllGlobals()
+      await database.cleanup()
+    }
+  })
+
+  it("marks npm 404 packages as unpublished and skips future resyncs", async () => {
+    const database = await createTestCatalogDatabase()
+    let npmRequestCount = 0
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (
+        url ===
+        "https://registry.npmjs.org/%40patrtorg%2Fsit-voluptate-quibusdam"
+      ) {
+        npmRequestCount += 1
+
+        return new Response("Unpublished", {
+          status: 404,
+          statusText: "Not Found",
+        })
+      }
+
+      if (url === "https://api.github.com/graphql") {
+        throw new Error(
+          "GitHub should not be queried for unpublished packages."
+        )
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const firstResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          {
+            packageName: "@patrtorg/sit-voluptate-quibusdam",
+            packageDownloads: 1000,
+          },
+        ],
+      })
+      const secondResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          {
+            packageName: "@patrtorg/sit-voluptate-quibusdam",
+            packageDownloads: 1000,
+          },
+        ],
+      })
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT
+            repository_url,
+            package_description,
+            package_downloads,
+            package_last_published_at
+          FROM packages
+          WHERE package_name = ?
+        `,
+        args: ["@patrtorg/sit-voluptate-quibusdam"],
+      })
+
+      expect(firstResult).toEqual({ syncedCount: 1 })
+      expect(secondResult).toEqual({ syncedCount: 0 })
+      expect(npmRequestCount).toBe(1)
+      expect(packageRows.rows[0]).toMatchObject({
+        repository_url: "https://registry.npmjs.org/-/unpublished",
+        package_description: "Unpublished package",
+        package_downloads: 1000,
+        package_last_published_at: null,
+      })
+    } finally {
+      vi.unstubAllGlobals()
       await database.cleanup()
     }
   })

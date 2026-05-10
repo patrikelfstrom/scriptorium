@@ -178,6 +178,55 @@ describe("catalog services", () => {
     }
   })
 
+  it("hides removed security holding packages from search and tag results", async () => {
+    const database = await createTestCatalogDatabase()
+
+    try {
+      await seedCatalogPackage(database.client, {
+        packageName: "react",
+        packageDescription: "UI library",
+        repositoryUrl: "https://github.com/facebook/react",
+        packageTags: ["react", "ui"],
+      })
+      await seedCatalogPackage(database.client, {
+        packageName: "@patrtorg/sit-voluptate-quibusdam",
+        packageDescription: "Security holding package",
+        repositoryUrl: "https://github.com/npm/security-holder",
+        packageTags: ["malware"],
+        repositoryTags: ["security"],
+      })
+
+      const searchResult = await searchCatalog(
+        database.client,
+        parseCatalogSearchParams(new URLSearchParams({}))
+      )
+      const removedSearchResult = await searchCatalog(
+        database.client,
+        parseCatalogSearchParams(
+          new URLSearchParams({
+            q: "sit-voluptate-quibusdam",
+          })
+        )
+      )
+      const allTags = await listCatalogTags(database.client, {})
+
+      expect(searchResult.items.map((item) => item.packageName)).toEqual([
+        "react",
+      ])
+      expect(searchResult.totalApprox).toBe(1)
+      expect(removedSearchResult.items).toEqual([])
+      expect(removedSearchResult.totalApprox).toBe(0)
+      expect(allTags.items.map((tag) => tag.id)).toEqual(
+        expect.arrayContaining(["react", "component-library"])
+      )
+      expect(allTags.items.map((tag) => tag.id)).not.toEqual(
+        expect.arrayContaining(["malware", "security"])
+      )
+    } finally {
+      await database.cleanup()
+    }
+  })
+
   it("removes obsolete package indexes during schema ensure without resetting data", async () => {
     const database = await createTestCatalogDatabase()
 

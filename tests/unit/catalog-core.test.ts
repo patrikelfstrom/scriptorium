@@ -98,6 +98,32 @@ describe("catalog core helpers", () => {
     ])
   })
 
+  it("selects a stable shard from the top download count entries", () => {
+    const entries = [
+      { packageName: "alpha", packageDownloads: 5 },
+      { packageName: "beta", packageDownloads: 4 },
+      { packageName: "gamma", packageDownloads: 3 },
+      { packageName: "delta", packageDownloads: 2 },
+      { packageName: "epsilon", packageDownloads: 1 },
+    ]
+
+    const shardZero = selectTopDownloadCountEntries(entries, {
+      topPackageLimit: 5,
+      shardCount: 2,
+      shardIndex: 0,
+    })
+    const shardOne = selectTopDownloadCountEntries(entries, {
+      topPackageLimit: 5,
+      shardCount: 2,
+      shardIndex: 1,
+    })
+
+    expect(
+      [...shardZero, ...shardOne].map((entry) => entry.packageName).sort()
+    ).toEqual(entries.map((entry) => entry.packageName).sort())
+    expect(shardZero.every((entry) => !shardOne.includes(entry))).toBe(true)
+  })
+
   it("parses GitHub repository refs from normalized repository URLs", () => {
     expect(
       parseGitHubRepositoryRef("https://github.com/facebook/react")

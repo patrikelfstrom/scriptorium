@@ -15,6 +15,10 @@ env:
 
 jobs:
   refresh:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard_slot: [0, 1]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,9 +41,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Select shard
+        env:
+          SHARD_SLOT: ${{ matrix.shard_slot }}
+          NPM_SYNC_SHARD_COUNT: 14
+        run: |
+          epoch_day=$(( $(date -u +%s) / 86400 ))
+          shard_index=$(( (epoch_day * 2 + SHARD_SLOT) % NPM_SYNC_SHARD_COUNT ))
+          echo "NPM_SYNC_SHARD_INDEX=$shard_index" >> "$GITHUB_ENV"
+          echo "Selected shard $(( shard_index + 1 ))/$NPM_SYNC_SHARD_COUNT for epoch day $epoch_day."
+
       - name: Refresh npm catalog data
         env:
-          NPM_SYNC_LIMIT: 300
+          NPM_SYNC_TOP_PACKAGE_LIMIT: 30000
+          NPM_SYNC_SHARD_COUNT: 14
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TURSO_DATABASE_URL: ${{ vars.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}

@@ -16,11 +16,23 @@ try {
     throw new Error("GITHUB_TOKEN is required for npm catalog sync.")
   }
 
+  const shardCount = parseOptionalPositiveInteger(
+    process.env.NPM_SYNC_SHARD_COUNT
+  )
+  const shardIndex = parseOptionalNonNegativeInteger(
+    process.env.NPM_SYNC_SHARD_INDEX
+  )
+
   const result = await syncNpmCatalog(client, {
     githubToken,
-    syncLimit: parsePositiveInteger(process.env.NPM_SYNC_LIMIT, 10_000),
+    topPackageLimit: parsePositiveInteger(
+      process.env.NPM_SYNC_TOP_PACKAGE_LIMIT ?? process.env.NPM_SYNC_LIMIT,
+      10_000
+    ),
     npmRegistryBaseUrl: process.env.NPM_REGISTRY_BASE_URL,
     githubGraphqlUrl: process.env.GITHUB_GRAPHQL_URL,
+    shardCount,
+    shardIndex,
     onProgress(message) {
       console.log(`[${new Date().toISOString()}] ${message}`)
     },
@@ -43,4 +55,26 @@ function parsePositiveInteger(
   return Number.isInteger(parsedValue) && parsedValue > 0
     ? parsedValue
     : fallbackValue
+}
+
+function parseOptionalPositiveInteger(value: string | undefined) {
+  if (!value) {
+    return undefined
+  }
+
+  const parsedValue = Number.parseInt(value, 10)
+  return Number.isInteger(parsedValue) && parsedValue > 0
+    ? parsedValue
+    : undefined
+}
+
+function parseOptionalNonNegativeInteger(value: string | undefined) {
+  if (!value) {
+    return undefined
+  }
+
+  const parsedValue = Number.parseInt(value, 10)
+  return Number.isInteger(parsedValue) && parsedValue >= 0
+    ? parsedValue
+    : undefined
 }

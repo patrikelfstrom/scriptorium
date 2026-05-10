@@ -11,6 +11,11 @@ import {
   createPackageUrl,
   type CatalogPackageRecord,
 } from "./package-store"
+import {
+  createUnpublishedPackageMarker,
+  createRemovedPackageSql,
+  isSecurityHoldingPackage,
+} from "./package-removal"
 
 const DEFAULT_DOWNLOADS_PERIOD = "last-month"
 const DEFAULT_GITHUB_BATCH_SIZE = 50
@@ -30,6 +35,7 @@ type DownloadCountEntry = {
 }
 
 type NpmPackageMetadata = {
+  isRemoved: boolean
   packageName: string
   packageUrl: string
   packageDescription: string | null
@@ -82,12 +88,14 @@ type GitHubRepositoryBatchResponse = Record<
 export type SyncNpmCatalogOptions = {
   githubToken: string
   onProgress?: (message: string) => void
-  syncLimit: number
+  topPackageLimit: number
   npmRegistryBaseUrl?: string
   githubGraphqlUrl?: string
   downloadCountsEntries?: DownloadCountEntry[]
   npmFetchConcurrency?: number
   githubBatchSize?: number
+  shardCount?: number
+  shardIndex?: number
 }
 
 export async function syncNpmCatalog(
@@ -101,10 +109,8 @@ export async function syncNpmCatalog(
     throw new Error("GITHUB_TOKEN is required for npm catalog sync.")
   }
 
-  const topPackages = await loadTopDownloadCountEntries(options)
-  options.onProgress?.(
-    `Selected ${topPackages.length} npm packages from download-counts.`
-  )
+  const topPackages = await loadTopDownloadCountEntries(client, options)
+  options.onProgress?.(createSelectionProgressMessage(topPackages, options))
   options.onProgress?.(
     `Fetching npm registry metadata for ${topPackages.length} packages.`
   )
@@ -120,6 +126,10 @@ export async function syncNpmCatalog(
   const githubRepositories = new Map<string, GitHubRepositoryRef>()
 
   for (const item of packageMetadata) {
+    if (item.isRemoved) {
+      continue
+    }
+
     const repositoryRef = parseGitHubRepositoryRef(item.repositoryUrl)
 
     if (repositoryRef) {
@@ -158,11 +168,17 @@ export async function syncNpmCatalog(
     const batch = packageMetadata.slice(index, index + DEFAULT_WRITE_BATCH_SIZE)
     const statements = batch.flatMap((item) => {
       const repositoryRef = parseGitHubRepositoryRef(item.repositoryUrl)
-      const enrichmentOutcome = getRepositoryEnrichmentOutcome(
-        item.repositoryUrl,
-        repositoryRef,
-        githubMetadataByRepository
-      )
+      const enrichmentOutcome = item.isRemoved
+        ? {
+            kind: "replace" as const,
+            repositoryStars: null,
+            repositoryTags: [],
+          }
+        : getRepositoryEnrichmentOutcome(
+            item.repositoryUrl,
+            repositoryRef,
+            githubMetadataByRepository
+          )
 
       const packageRecord: CatalogPackageRecord = {
         packageName: item.packageName,
@@ -234,9 +250,18 @@ export async function syncNpmCatalog(
 
 export function selectTopDownloadCountEntries(
   entries: DownloadCountEntry[],
-  syncLimit: number
+  selection:
+    | number
+    | {
+        topPackageLimit: number
+        shardCount?: number
+        shardIndex?: number
+      }
 ) {
-  return [...entries]
+  const { topPackageLimit, shardCount, shardIndex } =
+    normalizeDownloadCountSelection(selection)
+
+  const topEntries = [...entries]
     .filter(
       (entry) =>
         normalizeOptionalString(entry.packageName) &&
@@ -248,7 +273,15 @@ export function selectTopDownloadCountEntries(
         right.packageDownloads - left.packageDownloads ||
         left.packageName.localeCompare(right.packageName)
     )
-    .slice(0, Math.max(1, syncLimit))
+    .slice(0, topPackageLimit)
+
+  if (typeof shardCount === "undefined" || typeof shardIndex === "undefined") {
+    return topEntries
+  }
+
+  return topEntries.filter(
+    (entry) => calculateShardIndex(entry.packageName, shardCount) === shardIndex
+  )
 }
 
 export function parseGitHubRepositoryRef(repositoryUrl?: string | null) {
@@ -312,11 +345,110 @@ function getRepositoryEnrichmentOutcome(
   }
 }
 
-async function loadTopDownloadCountEntries(options: SyncNpmCatalogOptions) {
+async function loadTopDownloadCountEntries(
+  client: CatalogDatabaseClient,
+  options: SyncNpmCatalogOptions
+) {
   const entries =
     options.downloadCountsEntries ?? (await loadDownloadCountsEntries())
+  const removedPackageNames = await loadRemovedPackageNames(client)
+  const eligibleEntries =
+    removedPackageNames.size === 0
+      ? entries
+      : entries.filter(
+          (entry) =>
+            !removedPackageNames.has(
+              normalizeOptionalString(entry.packageName) ?? ""
+            )
+        )
 
-  return selectTopDownloadCountEntries(entries, options.syncLimit)
+  return selectTopDownloadCountEntries(eligibleEntries, {
+    topPackageLimit: options.topPackageLimit,
+    shardCount: options.shardCount,
+    shardIndex: options.shardIndex,
+  })
+}
+
+async function loadRemovedPackageNames(client: CatalogDatabaseClient) {
+  const result = await client.execute({
+    sql: `
+      SELECT package_name
+      FROM packages p
+      WHERE ${createRemovedPackageSql("p")}
+    `,
+  })
+
+  return new Set(result.rows.map((row) => String(row.package_name)))
+}
+
+function normalizeDownloadCountSelection(
+  selection:
+    | number
+    | {
+        topPackageLimit: number
+        shardCount?: number
+        shardIndex?: number
+      }
+) {
+  const topPackageLimit =
+    typeof selection === "number"
+      ? Math.max(1, selection)
+      : Math.max(1, selection.topPackageLimit)
+  const shardCount =
+    typeof selection === "number" ? undefined : selection.shardCount
+  const shardIndex =
+    typeof selection === "number" ? undefined : selection.shardIndex
+
+  if (
+    (typeof shardCount === "undefined") !==
+    (typeof shardIndex === "undefined")
+  ) {
+    throw new Error(
+      "NPM sync sharding requires both shardCount and shardIndex."
+    )
+  }
+
+  if (typeof shardCount === "undefined" || typeof shardIndex === "undefined") {
+    return { topPackageLimit }
+  }
+
+  if (!Number.isInteger(shardCount) || shardCount <= 0) {
+    throw new Error("NPM sync shardCount must be a positive integer.")
+  }
+
+  if (!Number.isInteger(shardIndex) || shardIndex < 0) {
+    throw new Error("NPM sync shardIndex must be a non-negative integer.")
+  }
+
+  if (shardIndex >= shardCount) {
+    throw new Error("NPM sync shardIndex must be less than shardCount.")
+  }
+
+  return { topPackageLimit, shardCount, shardIndex }
+}
+
+function calculateShardIndex(packageName: string, shardCount: number) {
+  let hash = 0
+
+  for (let index = 0; index < packageName.length; index += 1) {
+    hash = (hash * 31 + packageName.charCodeAt(index)) >>> 0
+  }
+
+  return hash % shardCount
+}
+
+function createSelectionProgressMessage(
+  selectedPackages: DownloadCountEntry[],
+  options: SyncNpmCatalogOptions
+) {
+  if (
+    typeof options.shardCount === "number" &&
+    typeof options.shardIndex === "number"
+  ) {
+    return `Selected ${selectedPackages.length} npm packages from the top ${options.topPackageLimit} download-count entries for shard ${options.shardIndex + 1}/${options.shardCount}.`
+  }
+
+  return `Selected ${selectedPackages.length} npm packages from the top ${options.topPackageLimit} download-count entries.`
 }
 
 async function loadDownloadCountsEntries() {
@@ -397,8 +529,24 @@ async function fetchNpmPackageMetadata(
   })
 
   if (response.status === 404) {
-    options.onProgress?.(`Skipping missing npm package ${packageName}.`)
-    return undefined
+    options.onProgress?.(
+      `Marking npm package ${packageName} as removed because the npm registry returned 404.`
+    )
+
+    const unpublishedMarker = createUnpublishedPackageMarker()
+
+    return {
+      isRemoved: true,
+      packageName,
+      packageUrl: createPackageUrl(packageName),
+      packageDescription: unpublishedMarker.packageDescription,
+      homepageUrl: unpublishedMarker.homepageUrl,
+      repositoryUrl: unpublishedMarker.repositoryUrl,
+      packageDownloads: entry.packageDownloads,
+      packageDownloadsPeriod: DEFAULT_DOWNLOADS_PERIOD,
+      packageLastPublishedAt: null,
+      packageTags: [],
+    }
   }
 
   if (!response.ok) {
@@ -413,26 +561,44 @@ async function fetchNpmPackageMetadata(
     latestVersionTag && payload.versions
       ? payload.versions[latestVersionTag]
       : undefined
+  const packageDescription =
+    normalizeOptionalString(latestVersion?.description) ??
+    normalizeOptionalString(payload.description) ??
+    null
+  const homepageUrl =
+    normalizeUrl(latestVersion?.homepage) ??
+    normalizeUrl(payload.homepage) ??
+    null
+  const repositoryUrl =
+    normalizeRepositoryUrl(latestVersion?.repository) ??
+    normalizeRepositoryUrl(payload.repository) ??
+    null
+  const isRemoved = isSecurityHoldingPackage({
+    latestVersionTag,
+    packageDescription,
+    repositoryUrl,
+    homepageUrl,
+  })
+
+  if (isRemoved) {
+    options.onProgress?.(
+      `Marking npm package ${packageName} as removed because npm returned a security holding package.`
+    )
+  }
 
   return {
+    isRemoved,
     packageName,
     packageUrl: createPackageUrl(packageName),
-    packageDescription:
-      normalizeOptionalString(latestVersion?.description) ??
-      normalizeOptionalString(payload.description) ??
-      null,
-    homepageUrl:
-      normalizeUrl(latestVersion?.homepage) ??
-      normalizeUrl(payload.homepage) ??
-      null,
-    repositoryUrl:
-      normalizeRepositoryUrl(latestVersion?.repository) ??
-      normalizeRepositoryUrl(payload.repository) ??
-      null,
+    packageDescription,
+    homepageUrl,
+    repositoryUrl,
     packageDownloads: entry.packageDownloads,
     packageDownloadsPeriod: DEFAULT_DOWNLOADS_PERIOD,
     packageLastPublishedAt: extractLatestPublishedAt(payload, latestVersionTag),
-    packageTags: normalizeKeywords(latestVersion?.keywords ?? payload.keywords),
+    packageTags: isRemoved
+      ? []
+      : normalizeKeywords(latestVersion?.keywords ?? payload.keywords),
   }
 }
 
