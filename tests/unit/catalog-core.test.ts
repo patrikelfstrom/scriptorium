@@ -5,6 +5,11 @@ import {
   tokenizeCatalogQuery,
 } from "../../shared/catalog"
 import {
+  getCatalogPageCursorForOffset,
+  getCatalogPageOffsetForIndex,
+  getCatalogPageOffsetsForRange,
+} from "../../src/features/catalog/paging"
+import {
   createPackageUrl,
   encodePackageNameForPage,
 } from "../../server/catalog/package-store"
@@ -21,6 +26,15 @@ describe("catalog core helpers", () => {
   it("encodes and decodes cursors", () => {
     expect(decodeCatalogCursor(encodeCatalogCursor(123))).toBe(123)
     expect(decodeCatalogCursor("not-a-cursor")).toBe(0)
+  })
+
+  it("maps row ranges to page offsets without walking intermediate pages", () => {
+    expect(getCatalogPageOffsetForIndex(9_999)).toBe(9_990)
+    expect(getCatalogPageCursorForOffset(9_990)).toBe(
+      encodeCatalogCursor(9_990)
+    )
+    expect(getCatalogPageOffsetsForRange(9_999, 10_002)).toEqual([9_990])
+    expect(getCatalogPageOffsetsForRange(55, 91)).toEqual([30, 60, 90])
   })
 
   it("parses search params", () => {

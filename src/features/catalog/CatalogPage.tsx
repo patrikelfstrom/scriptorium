@@ -29,12 +29,12 @@ export function CatalogPage() {
   } = useCatalogState()
   const {
     rows,
+    rowsByIndex,
     availableTags,
     errorMessage,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
+    isFetchingRows,
     isLoading,
+    loadRowsForRange,
     totalRows,
   } = useCatalogData({
     query: debouncedSearchText,
@@ -120,13 +120,13 @@ export function CatalogPage() {
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <ResultsTable
             errorMessage={errorMessage}
-            fetchNextPage={fetchNextPage}
-            hasNextPage={hasNextPage}
             isDarkMode={isDarkMode}
-            isFetchingNextPage={isFetchingNextPage}
+            isFetchingRows={isFetchingRows}
             isLoading={isLoading}
+            loadRowsForRange={loadRowsForRange}
             queryStateKey={queryStateKey}
             rows={rows}
+            rowsByIndex={rowsByIndex}
             selectedTagSet={selectedTagSet}
             setSelectedTags={setSelectedTags}
             setSortState={setSortState}

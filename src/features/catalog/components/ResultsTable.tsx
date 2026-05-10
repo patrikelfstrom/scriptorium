@@ -1,8 +1,3 @@
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from "@tanstack/react-table"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { Link as LinkIcon } from "lucide-react"
 import type { Dispatch, ReactNode, SetStateAction } from "react"
@@ -25,13 +20,13 @@ import { SortButton } from "./SortButton"
 
 export function ResultsTable({
   errorMessage,
-  fetchNextPage,
-  hasNextPage,
   isDarkMode,
-  isFetchingNextPage,
+  isFetchingRows,
   isLoading,
+  loadRowsForRange,
   queryStateKey,
   rows,
+  rowsByIndex,
   selectedTagSet,
   setSelectedTags,
   setSortState,
@@ -39,13 +34,13 @@ export function ResultsTable({
   totalRows,
 }: {
   errorMessage?: string
-  fetchNextPage: () => Promise<unknown>
-  hasNextPage?: boolean
   isDarkMode: boolean
-  isFetchingNextPage: boolean
+  isFetchingRows: boolean
   isLoading: boolean
+  loadRowsForRange: (startIndex: number, endIndex: number) => void
   queryStateKey: string
   rows: CatalogRow[]
+  rowsByIndex: Map<number, CatalogRow>
   selectedTagSet: Set<string>
   setSelectedTags: Dispatch<SetStateAction<string[]>>
   setSortState: Dispatch<SetStateAction<SortState>>
@@ -55,168 +50,7 @@ export function ResultsTable({
   const scrollRef = useRef<HTMLDivElement>(null)
   const gridTemplateColumns = "minmax(0,0.85fr) 7rem 8.5rem minmax(18rem,1fr)"
   const totalRowCount = Math.max(totalRows, rows.length)
-  const columns = [
-    {
-      id: "name",
-      accessorKey: "name",
-      header: () => (
-        <SortButton
-          active={sortState.column === "name"}
-          direction={sortState.direction}
-          label="Name"
-          onClick={() => toggleSortColumn("name", setSortState)}
-        />
-      ),
-      cell: ({ row }: { row: { original: CatalogRow } }) => {
-        const tool = row.original
-        const nameHref = tool.packageUrl
-
-        return (
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="min-w-0 flex-1">
-              {nameHref ? (
-                <a
-                  className="block min-w-0 truncate transition-colors hover:text-primary"
-                  href={nameHref}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {tool.packageName}
-                </a>
-              ) : (
-                <span className="block min-w-0 truncate">
-                  {tool.packageName}
-                </span>
-              )}
-            </div>
-            {tool.repositoryUrl || tool.packageUrl || tool.homepageUrl ? (
-              <div className="ml-auto flex shrink-0 items-center gap-4 text-xs text-muted-foreground">
-                {tool.repositoryUrl ? (
-                  <MetadataLink
-                    href={tool.repositoryUrl}
-                    label={truncateLabel(
-                      tool.repositoryLabel ?? "repository",
-                      GITHUB_REPOSITORY_LABEL_MAX_LENGTH
-                    )}
-                    title={tool.repositoryLabel ?? "repository"}
-                    ariaLabel={tool.repositoryLabel ?? "repository"}
-                    icon={
-                      isGitHubRepositoryUrl(tool.repositoryUrl) ? (
-                        <GitHubIcon className="size-3.5" />
-                      ) : (
-                        <LinkIcon className="size-3.5" />
-                      )
-                    }
-                    monospace
-                  />
-                ) : null}
-                {tool.packageUrl ? (
-                  <MetadataLink
-                    href={tool.packageUrl}
-                    label="npm"
-                    icon={<NpmIcon className="size-3.5" />}
-                  />
-                ) : null}
-                {tool.homepageUrl ? (
-                  <MetadataLink
-                    href={tool.homepageUrl}
-                    label="homepage"
-                    icon={<LinkIcon className="size-3.5" />}
-                  />
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        )
-      },
-    },
-    {
-      id: "stars",
-      accessorFn: (row: CatalogRow) => row.repositoryStars ?? 0,
-      header: () => (
-        <SortButton
-          active={sortState.column === "stars"}
-          direction={sortState.direction}
-          label="Stars"
-          onClick={() => toggleSortColumn("stars", setSortState)}
-        />
-      ),
-      cell: ({ row }: { row: { original: CatalogRow } }) =>
-        formatStarCount(row.original.repositoryStars),
-    },
-    {
-      id: "published",
-      accessorFn: (row: CatalogRow) => row.packageLastPublishedAt ?? "",
-      header: () => (
-        <SortButton
-          active={sortState.column === "published"}
-          direction={sortState.direction}
-          label="Published"
-          onClick={() => toggleSortColumn("published", setSortState)}
-        />
-      ),
-      cell: ({ row }: { row: { original: CatalogRow } }) => (
-        <span>
-          {formatPublishedDate(row.original.packageLastPublishedAt) || "—"}
-        </span>
-      ),
-    },
-    {
-      id: "tags",
-      accessorFn: (row: CatalogRow) => row.tags.join(" "),
-      header: () => (
-        <SortButton
-          active={sortState.column === "tags"}
-          direction={sortState.direction}
-          label="Tags"
-          onClick={() => toggleSortColumn("tags", setSortState)}
-        />
-      ),
-      cell: ({ row }: { row: { original: CatalogRow } }) => (
-        <div className="flex flex-wrap gap-2">
-          {row.original.tags.map((tag) => {
-            const isSelected = selectedTagSet.has(normalizeValue(tag))
-
-            return (
-              <button
-                key={`${row.original.packageName}-${tag}`}
-                type="button"
-                onClick={() => toggleSelectedTag(tag, setSelectedTags)}
-                aria-pressed={isSelected}
-                aria-label={`${isSelected ? "Remove" : "Add"} ${tag} filter`}
-                className="rounded-full transition-transform outline-none hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-primary/20"
-              >
-                <Badge
-                  className={
-                    isSelected ? "shadow-sm ring-2 ring-current/20" : undefined
-                  }
-                  style={getTagColorStyle(tag, isSelected, isDarkMode)}
-                >
-                  {tag}
-                </Badge>
-              </button>
-            )
-          })}
-        </div>
-      ),
-    },
-  ]
-  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table's useReactTable API is required here.
-  const table = useReactTable({
-    data: rows,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-    manualSorting: true,
-    state: {
-      sorting: [
-        {
-          id: sortState.column,
-          desc: sortState.direction === "desc",
-        },
-      ],
-    },
-  })
-  const tableRows = table.getRowModel().rows
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual's useVirtualizer API is required here.
   const rowVirtualizer = useVirtualizer({
     count: totalRowCount,
     getScrollElement: () => scrollRef.current,
@@ -238,41 +72,30 @@ export function ResultsTable({
   useEffect(() => {
     const scrollElement = scrollRef.current
 
-    if (
-      !scrollElement ||
-      !hasNextPage ||
-      isFetchingNextPage ||
-      totalRowCount === 0
-    ) {
+    if (!scrollElement || totalRowCount === 0) {
       return
     }
 
-    const maybeLoadMore = () => {
+    const maybeLoadVisibleRange = () => {
+      const visibleStartIndex = Math.floor(
+        scrollElement.scrollTop / ESTIMATED_ROW_HEIGHT
+      )
       const visibleEndIndex =
         Math.ceil(
           (scrollElement.scrollTop + scrollElement.clientHeight) /
             ESTIMATED_ROW_HEIGHT
         ) + LOAD_AHEAD_ROWS
 
-      if (visibleEndIndex >= rows.length && rows.length < totalRowCount) {
-        void fetchNextPage()
-      }
+      loadRowsForRange(visibleStartIndex, visibleEndIndex)
     }
 
-    maybeLoadMore()
-    scrollElement.addEventListener("scroll", maybeLoadMore)
+    maybeLoadVisibleRange()
+    scrollElement.addEventListener("scroll", maybeLoadVisibleRange)
 
     return () => {
-      scrollElement.removeEventListener("scroll", maybeLoadMore)
+      scrollElement.removeEventListener("scroll", maybeLoadVisibleRange)
     }
-  }, [
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    rows.length,
-    totalRowCount,
-    queryStateKey,
-  ])
+  }, [loadRowsForRange, totalRowCount, queryStateKey])
 
   if (isLoading && rows.length === 0) {
     return <TableMessage message="Loading tooling catalog..." />
@@ -316,48 +139,60 @@ export function ResultsTable({
           data-slot="table-header"
           className="sticky top-0 z-20 grid bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 [&_tr]:border-b [&_tr]:border-border/60"
         >
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr
-              key={headerGroup.id}
-              data-slot="table-row"
-              className="grid border-b border-border/60 transition-colors hover:bg-transparent"
-              style={{ gridTemplateColumns }}
+          <tr
+            data-slot="table-row"
+            className="grid border-b border-border/60 transition-colors hover:bg-transparent"
+            style={{ gridTemplateColumns }}
+          >
+            <th
+              data-slot="table-head"
+              aria-sort={getAriaSort("name", sortState)}
+              className="flex h-11 items-center justify-start px-4 text-left text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
             >
-              {headerGroup.headers.map((header) => {
-                const alignRight = header.id === "stars"
-                const sortable =
-                  header.id === "name" ||
-                  header.id === "stars" ||
-                  header.id === "published" ||
-                  header.id === "tags"
-
-                return (
-                  <th
-                    key={header.id}
-                    data-slot="table-head"
-                    aria-sort={
-                      sortable
-                        ? getAriaSort(
-                            header.id as SortState["column"],
-                            sortState
-                          )
-                        : undefined
-                    }
-                    className={`flex h-11 items-center px-4 text-left text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase ${
-                      alignRight ? "justify-end text-right" : "justify-start"
-                    }`}
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </th>
-                )
-              })}
-            </tr>
-          ))}
+              <SortButton
+                active={sortState.column === "name"}
+                direction={sortState.direction}
+                label="Name"
+                onClick={() => toggleSortColumn("name", setSortState)}
+              />
+            </th>
+            <th
+              data-slot="table-head"
+              aria-sort={getAriaSort("stars", sortState)}
+              className="flex h-11 items-center justify-end px-4 text-right text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
+            >
+              <SortButton
+                active={sortState.column === "stars"}
+                direction={sortState.direction}
+                label="Stars"
+                onClick={() => toggleSortColumn("stars", setSortState)}
+              />
+            </th>
+            <th
+              data-slot="table-head"
+              aria-sort={getAriaSort("published", sortState)}
+              className="flex h-11 items-center justify-start px-4 text-left text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
+            >
+              <SortButton
+                active={sortState.column === "published"}
+                direction={sortState.direction}
+                label="Published"
+                onClick={() => toggleSortColumn("published", setSortState)}
+              />
+            </th>
+            <th
+              data-slot="table-head"
+              aria-sort={getAriaSort("tags", sortState)}
+              className="flex h-11 items-center justify-start px-4 text-left text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
+            >
+              <SortButton
+                active={sortState.column === "tags"}
+                direction={sortState.direction}
+                label="Tags"
+                onClick={() => toggleSortColumn("tags", setSortState)}
+              />
+            </th>
+          </tr>
         </thead>
         <tbody
           data-slot="table-body"
@@ -365,7 +200,7 @@ export function ResultsTable({
           style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
         >
           {renderedRows.map(({ key, index, start }) => {
-            const loadedRow = tableRows[index]
+            const loadedRow = rowsByIndex.get(index)
 
             return (
               <tr
@@ -380,30 +215,12 @@ export function ResultsTable({
                 }}
               >
                 {loadedRow ? (
-                  loadedRow.getVisibleCells().map((cell) => {
-                    const alignRight = cell.column.id === "stars"
-
-                    return (
-                      <td
-                        key={cell.id}
-                        data-slot="table-cell"
-                        className={`px-4 py-4 align-middle ${
-                          cell.column.id === "name"
-                            ? "min-w-0 font-medium text-foreground"
-                            : ""
-                        } ${
-                          cell.column.id === "published"
-                            ? "text-muted-foreground tabular-nums"
-                            : ""
-                        } ${alignRight ? "text-right text-muted-foreground tabular-nums" : ""}`}
-                      >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </td>
-                    )
-                  })
+                  <LoadedRowCells
+                    isDarkMode={isDarkMode}
+                    row={loadedRow}
+                    selectedTagSet={selectedTagSet}
+                    setSelectedTags={setSelectedTags}
+                  />
                 ) : (
                   <LoadingRowCells />
                 )}
@@ -417,9 +234,9 @@ export function ResultsTable({
           {errorMessage}
         </div>
       ) : null}
-      {isFetchingNextPage ? (
+      {isFetchingRows ? (
         <div className="border-t border-border/60 bg-background/90 px-4 py-3 text-sm text-muted-foreground">
-          Loading more tooling...
+          Loading tooling...
         </div>
       ) : null}
     </div>
@@ -485,6 +302,122 @@ function LoadingRowCells() {
           <div className="h-6 w-16 rounded-full bg-muted/50" />
           <div className="h-6 w-20 rounded-full bg-muted/40" />
           <div className="h-6 w-14 rounded-full bg-muted/30" />
+        </div>
+      </td>
+    </>
+  )
+}
+
+function LoadedRowCells({
+  isDarkMode,
+  row,
+  selectedTagSet,
+  setSelectedTags,
+}: {
+  isDarkMode: boolean
+  row: CatalogRow
+  selectedTagSet: Set<string>
+  setSelectedTags: Dispatch<SetStateAction<string[]>>
+}) {
+  const nameHref = row.packageUrl
+
+  return (
+    <>
+      <td
+        data-slot="table-cell"
+        className="min-w-0 px-4 py-4 align-middle font-medium text-foreground"
+      >
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="min-w-0 flex-1">
+            {nameHref ? (
+              <a
+                className="block min-w-0 truncate transition-colors hover:text-primary"
+                href={nameHref}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {row.packageName}
+              </a>
+            ) : (
+              <span className="block min-w-0 truncate">{row.packageName}</span>
+            )}
+          </div>
+          {row.repositoryUrl || row.packageUrl || row.homepageUrl ? (
+            <div className="ml-auto flex shrink-0 items-center gap-4 text-xs text-muted-foreground">
+              {row.repositoryUrl ? (
+                <MetadataLink
+                  href={row.repositoryUrl}
+                  label={truncateLabel(
+                    row.repositoryLabel ?? "repository",
+                    GITHUB_REPOSITORY_LABEL_MAX_LENGTH
+                  )}
+                  title={row.repositoryLabel ?? "repository"}
+                  ariaLabel={row.repositoryLabel ?? "repository"}
+                  icon={
+                    isGitHubRepositoryUrl(row.repositoryUrl) ? (
+                      <GitHubIcon className="size-3.5" />
+                    ) : (
+                      <LinkIcon className="size-3.5" />
+                    )
+                  }
+                  monospace
+                />
+              ) : null}
+              {row.packageUrl ? (
+                <MetadataLink
+                  href={row.packageUrl}
+                  label="npm"
+                  icon={<NpmIcon className="size-3.5" />}
+                />
+              ) : null}
+              {row.homepageUrl ? (
+                <MetadataLink
+                  href={row.homepageUrl}
+                  label="homepage"
+                  icon={<LinkIcon className="size-3.5" />}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </td>
+      <td
+        data-slot="table-cell"
+        className="px-4 py-4 text-right align-middle text-muted-foreground tabular-nums"
+      >
+        {formatStarCount(row.repositoryStars)}
+      </td>
+      <td
+        data-slot="table-cell"
+        className="px-4 py-4 align-middle text-muted-foreground tabular-nums"
+      >
+        {formatPublishedDate(row.packageLastPublishedAt) || "—"}
+      </td>
+      <td data-slot="table-cell" className="px-4 py-4 align-middle">
+        <div className="flex flex-wrap gap-2">
+          {row.tags.map((tag) => {
+            const isSelected = selectedTagSet.has(normalizeValue(tag))
+
+            return (
+              <button
+                key={`${row.packageName}-${tag}`}
+                type="button"
+                onClick={() => toggleSelectedTag(tag, setSelectedTags)}
+                aria-pressed={isSelected}
+                aria-label={`${isSelected ? "Remove" : "Add"} ${tag} filter`}
+                className="rounded-full transition-transform outline-none hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-primary/20"
+              >
+                <Badge
+                  className={
+                    isSelected ? "shadow-sm ring-2 ring-current/20" : undefined
+                  }
+                  style={getTagColorStyle(tag, isSelected, isDarkMode)}
+                >
+                  {tag}
+                </Badge>
+              </button>
+            )
+          })}
         </div>
       </td>
     </>

@@ -43,6 +43,9 @@ Run the frontend:
 pnpm dev
 ```
 
+`pnpm dev` only starts the Vite frontend on `http://127.0.0.1:5173`.
+In local development, Vite proxies `/api/*` requests to `http://127.0.0.1:8787`, so the API also needs to be running.
+
 Run the API locally:
 
 ```bash
@@ -68,7 +71,7 @@ To destructively reset the catalog and recreate the current schema:
 pnpm db:reset
 ```
 
-Point the frontend at the API during local development with:
+If you want to bypass the Vite proxy and point the frontend at a different API origin during local development, use:
 
 ```bash
 VITE_API_BASE_URL=http://127.0.0.1:8787
