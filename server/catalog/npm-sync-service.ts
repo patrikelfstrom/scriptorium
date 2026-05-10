@@ -17,6 +17,7 @@ const DEFAULT_GITHUB_BATCH_SIZE = 50
 const DEFAULT_NPM_FETCH_CONCURRENCY = 12
 const DEFAULT_WRITE_BATCH_SIZE = 25
 const DEFAULT_SYNC_USER_AGENT = "scriptorium/0.1.1"
+const PROGRESS_INTERVAL_MS = 60_000
 const HTTP_TOO_MANY_REQUESTS = 429
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504])
 const require = createRequire(import.meta.url)
@@ -104,6 +105,9 @@ export async function syncNpmCatalog(
   options.onProgress?.(
     `Selected ${topPackages.length} npm packages from download-counts.`
   )
+  options.onProgress?.(
+    `Fetching npm registry metadata for ${topPackages.length} packages.`
+  )
 
   const packageMetadata = await fetchNpmPackageMetadataBatch(
     topPackages,
@@ -139,6 +143,12 @@ export async function syncNpmCatalog(
       onProgress: options.onProgress,
     }
   )
+
+  options.onProgress?.(
+    `Writing ${packageMetadata.length} npm packages to the catalog.`
+  )
+  let storedCount = 0
+  let lastWriteProgressAt = Date.now()
 
   for (
     let index = 0;
@@ -197,8 +207,22 @@ export async function syncNpmCatalog(
     })
 
     await client.batch(statements, "write")
+    storedCount += batch.length
+
+    const now = Date.now()
+
+    if (
+      now - lastWriteProgressAt >= PROGRESS_INTERVAL_MS ||
+      storedCount === packageMetadata.length
+    ) {
+      options.onProgress?.(
+        `Stored ${storedCount}/${packageMetadata.length} npm packages.`
+      )
+      lastWriteProgressAt = now
+    }
   }
 
+  options.onProgress?.("Pruning orphaned tags.")
   await pruneOrphanedTags(client)
 
   options.onProgress?.(`Stored ${packageMetadata.length} npm packages total.`)
@@ -320,10 +344,29 @@ async function fetchNpmPackageMetadataBatch(
   const queue = new PQueue({
     concurrency: options.npmFetchConcurrency ?? DEFAULT_NPM_FETCH_CONCURRENCY,
   })
+  let completedCount = 0
+  let lastProgressAt = Date.now()
 
   const results = await Promise.all(
     packages.map((entry) =>
-      queue.add(async () => fetchNpmPackageMetadata(entry, options))
+      queue.add(async () => {
+        const result = await fetchNpmPackageMetadata(entry, options)
+        completedCount += 1
+
+        const now = Date.now()
+
+        if (
+          now - lastProgressAt >= PROGRESS_INTERVAL_MS ||
+          completedCount === packages.length
+        ) {
+          options.onProgress?.(
+            `Fetched npm metadata for ${completedCount}/${packages.length} packages.`
+          )
+          lastProgressAt = now
+        }
+
+        return result
+      })
     )
   )
 
