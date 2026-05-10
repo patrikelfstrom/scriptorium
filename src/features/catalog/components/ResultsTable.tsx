@@ -88,12 +88,30 @@ export function ResultsTable({
 
       loadRowsForRange(visibleStartIndex, visibleEndIndex)
     }
+    let scrollIdleTimeoutId: number | undefined
+
+    const debouncedLoadVisibleRange = () => {
+      if (scrollIdleTimeoutId) {
+        clearTimeout(scrollIdleTimeoutId)
+      }
+
+      scrollIdleTimeoutId = window.setTimeout(
+        maybeLoadVisibleRange,
+        SCROLL_LOAD_DEBOUNCE_MS
+      )
+    }
 
     maybeLoadVisibleRange()
-    scrollElement.addEventListener("scroll", maybeLoadVisibleRange)
+    scrollElement.addEventListener("scroll", debouncedLoadVisibleRange, {
+      passive: true,
+    })
 
     return () => {
-      scrollElement.removeEventListener("scroll", maybeLoadVisibleRange)
+      if (scrollIdleTimeoutId) {
+        clearTimeout(scrollIdleTimeoutId)
+      }
+
+      scrollElement.removeEventListener("scroll", debouncedLoadVisibleRange)
     }
   }, [loadRowsForRange, totalRowCount, queryStateKey])
 
@@ -182,15 +200,9 @@ export function ResultsTable({
             </th>
             <th
               data-slot="table-head"
-              aria-sort={getAriaSort("tags", sortState)}
               className="flex h-11 items-center justify-start px-4 text-left text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
             >
-              <SortButton
-                active={sortState.column === "tags"}
-                direction={sortState.direction}
-                label="Tags"
-                onClick={() => toggleSortColumn("tags", setSortState)}
-              />
+              <span>Tags</span>
             </th>
           </tr>
         </thead>
@@ -246,6 +258,7 @@ export function ResultsTable({
 const LOAD_AHEAD_ROWS = 12
 const ESTIMATED_ROW_HEIGHT = 68
 const GITHUB_REPOSITORY_LABEL_MAX_LENGTH = 200
+const SCROLL_LOAD_DEBOUNCE_MS = 120
 
 function TableMessage({
   message,

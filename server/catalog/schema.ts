@@ -74,16 +74,16 @@ const schemaStatements: InStatement[] = [
     ON packages(package_downloads DESC)
   `,
   `
-    CREATE INDEX IF NOT EXISTS packages_repository_stars_idx
-    ON packages(repository_stars DESC)
+    CREATE INDEX IF NOT EXISTS packages_name_nocase_idx
+    ON packages(package_name COLLATE NOCASE)
   `,
   `
-    CREATE INDEX IF NOT EXISTS packages_last_published_at_idx
-    ON packages(package_last_published_at DESC)
+    CREATE INDEX IF NOT EXISTS packages_repository_stars_name_idx
+    ON packages(repository_stars DESC, package_name COLLATE NOCASE)
   `,
   `
-    CREATE INDEX IF NOT EXISTS packages_package_name_idx
-    ON packages(package_name)
+    CREATE INDEX IF NOT EXISTS packages_last_published_at_name_idx
+    ON packages(package_last_published_at DESC, package_name COLLATE NOCASE)
   `,
   `
     CREATE INDEX IF NOT EXISTS package_tags_tag_id_idx
@@ -103,11 +103,20 @@ const schemaStatements: InStatement[] = [
   `,
 ]
 
+const obsoleteIndexDropStatements: InStatement[] = [
+  "DROP INDEX IF EXISTS packages_package_name_idx",
+  "DROP INDEX IF EXISTS packages_last_published_at_idx",
+  "DROP INDEX IF EXISTS packages_repository_stars_idx",
+]
+
 const destructiveResetStatements: InStatement[] = [
   "DROP INDEX IF EXISTS repository_tags_package_name_idx",
   "DROP INDEX IF EXISTS repository_tags_tag_id_idx",
   "DROP INDEX IF EXISTS package_tags_package_name_idx",
   "DROP INDEX IF EXISTS package_tags_tag_id_idx",
+  "DROP INDEX IF EXISTS packages_last_published_at_name_idx",
+  "DROP INDEX IF EXISTS packages_repository_stars_name_idx",
+  "DROP INDEX IF EXISTS packages_name_nocase_idx",
   "DROP INDEX IF EXISTS packages_package_name_idx",
   "DROP INDEX IF EXISTS packages_last_published_at_idx",
   "DROP INDEX IF EXISTS packages_repository_stars_idx",
@@ -131,6 +140,7 @@ export async function ensureCatalogSchema(client: CatalogDatabaseClient) {
     await applyStatements(client, destructiveResetStatements)
   }
 
+  await applyStatements(client, obsoleteIndexDropStatements)
   await applyStatements(client, schemaStatements)
 }
 

@@ -77,7 +77,10 @@ export function useCatalogData(input: {
 
     return mappedRows
   })
-  const totalRows = searchQueries[0]?.data?.totalApprox ?? rows.length
+  const totalRows = Math.max(
+    rows.length,
+    ...searchQueries.map((query) => query.data?.totalApprox ?? 0)
+  )
   const availableTags = (tagsQuery.data?.items ?? [])
     .map((item) => normalizeValue(item.id || item.label))
     .filter(Boolean)

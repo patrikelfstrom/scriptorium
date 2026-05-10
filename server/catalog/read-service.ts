@@ -24,90 +24,62 @@ export async function searchCatalog(
     )
   )
   const { clauses, args } = buildSearchWhereClause(queryTerms, normalizedTags)
-  const listArgs = [...args, params.limit + 1, params.offset]
   const orderByClause = getCatalogOrderByClause(params.sort, params.direction)
-
-  const rowsResult = await client.execute({
-    sql: `
-      WITH merged_tags AS (
-        SELECT package_name, tag_id FROM package_tags
-        UNION
-        SELECT package_name, tag_id FROM repository_tags
-      ),
-      filtered AS (
-        SELECT
-          p.package_name,
-          p.repository_url,
-          p.package_url,
-          p.package_description,
-          p.homepage_url,
-          p.repository_stars,
-          p.package_downloads,
-          p.package_downloads_period,
-          p.package_last_published_at,
-          COALESCE((
-            SELECT GROUP_CONCAT(ordered_tags.tag_id, ' ')
-            FROM (
-              SELECT mt.tag_id
-              FROM merged_tags mt
-              WHERE mt.package_name = p.package_name
-              ORDER BY mt.tag_id ASC
-            ) AS ordered_tags
-          ), '') AS tags_sort_value
-        FROM packages p
-        ${clauses}
-      )
-      SELECT *
-      FROM filtered
-      ORDER BY ${orderByClause}
-      LIMIT ? OFFSET ?
-    `,
-    args: listArgs,
-  })
-
-  const countResult = await client.execute({
-    sql: `
-      WITH merged_tags AS (
-        SELECT package_name, tag_id FROM package_tags
-        UNION
-        SELECT package_name, tag_id FROM repository_tags
-      )
-      SELECT COUNT(*) AS total
-      FROM packages p
-      ${clauses}
-    `,
-    args,
-  })
-
-  const rows = rowsResult.rows
-  const hasMore = rows.length > params.limit
-  const visibleRows = rows.slice(0, params.limit)
-  const tagMap = await fetchTagsForPackageNames(
+  const packageNames = await fetchVisiblePackageNames(
     client,
-    visibleRows.map((row) => String(row.package_name))
+    params,
+    clauses,
+    args,
+    orderByClause
   )
+  const hasMore = packageNames.length > params.limit
+  const visiblePackageNames = packageNames.slice(0, params.limit)
+  const [packageMap, tagMap, totalApprox] = await Promise.all([
+    fetchPackagesByName(client, visiblePackageNames),
+    fetchTagsForPackageNames(client, visiblePackageNames),
+    resolveTotalApproximation(
+      client,
+      params,
+      clauses,
+      args,
+      visiblePackageNames.length,
+      hasMore
+    ),
+  ])
 
   return {
-    items: visibleRows.map((row) => ({
-      packageName: String(row.package_name),
-      repositoryUrl: normalizeNullableString(row.repository_url),
-      packageUrl: String(row.package_url),
-      packageDescription: normalizeNullableString(row.package_description),
-      homepageUrl: normalizeNullableString(row.homepage_url),
-      repositoryStars: normalizeNullableNumber(row.repository_stars),
-      packageDownloads: normalizeNumber(row.package_downloads),
-      packageDownloadsPeriod: normalizeNullableString(
-        row.package_downloads_period
+    items: visiblePackageNames
+      .map((packageName) => {
+        const row = packageMap.get(packageName)
+
+        if (!row) {
+          return null
+        }
+
+        return {
+          packageName,
+          repositoryUrl: normalizeNullableString(row.repository_url),
+          packageUrl: String(row.package_url),
+          packageDescription: normalizeNullableString(row.package_description),
+          homepageUrl: normalizeNullableString(row.homepage_url),
+          repositoryStars: normalizeNullableNumber(row.repository_stars),
+          packageDownloads: normalizeNumber(row.package_downloads),
+          packageDownloadsPeriod: normalizeNullableString(
+            row.package_downloads_period
+          ),
+          packageLastPublishedAt: normalizeNullableString(
+            row.package_last_published_at
+          ),
+          tags: tagMap.get(packageName) ?? [],
+        }
+      })
+      .filter((item): item is CatalogSearchResponse["items"][number] =>
+        Boolean(item)
       ),
-      packageLastPublishedAt: normalizeNullableString(
-        row.package_last_published_at
-      ),
-      tags: tagMap.get(String(row.package_name)) ?? [],
-    })),
     nextCursor: hasMore
       ? encodeCatalogCursor(params.offset + params.limit)
       : null,
-    totalApprox: normalizeNumber(countResult.rows[0]?.total),
+    totalApprox,
   }
 }
 
@@ -167,17 +139,10 @@ function buildSearchWhereClause(queryTerms: string[], tags: string[]) {
   }
 
   if (tags.length > 0) {
-    const placeholders = tags.map(() => "?").join(", ")
     clauses.push(
-      `AND p.package_name IN (
-        SELECT package_name
-        FROM merged_tags
-        WHERE tag_id IN (${placeholders})
-        GROUP BY package_name
-        HAVING COUNT(DISTINCT tag_id) = ?
-      )`
+      `AND p.package_name IN (${buildTagFilterSubquery(tags.length)})`
     )
-    args.push(...tags, tags.length)
+    args.push(...tags, ...tags, tags.length)
   }
 
   return {
@@ -194,15 +159,163 @@ function getCatalogOrderByClause(
 
   switch (sort) {
     case "stars":
-      return `COALESCE(repository_stars, 0) ${normalizedDirection}, LOWER(package_name) ASC`
+      return `repository_stars ${normalizedDirection}, package_name COLLATE NOCASE ASC`
     case "published":
-      return `CASE WHEN package_last_published_at IS NULL OR package_last_published_at = '' THEN 1 ELSE 0 END ASC, package_last_published_at ${normalizedDirection}, LOWER(package_name) ASC`
-    case "tags":
-      return `LOWER(tags_sort_value) ${normalizedDirection}, LOWER(package_name) ASC`
+      return `package_last_published_at ${normalizedDirection}, package_name COLLATE NOCASE ASC`
     case "name":
     default:
-      return `LOWER(package_name) ${normalizedDirection}`
+      return `package_name COLLATE NOCASE ${normalizedDirection}`
   }
+}
+
+async function fetchVisiblePackageNames(
+  client: CatalogDatabaseClient,
+  params: ParsedCatalogSearchParams,
+  clauses: string,
+  args: Array<string | number>,
+  orderByClause: string
+) {
+  const listArgs = [...args, params.limit + 1, params.offset]
+  const result = await client.execute({
+    sql: `
+      WITH merged_tags AS (
+        ${MERGED_TAGS_SQL}
+      )
+      SELECT p.package_name
+      FROM packages p
+      ${clauses}
+      ORDER BY ${orderByClause}
+      LIMIT ? OFFSET ?
+    `,
+    args: listArgs,
+  })
+
+  return result.rows.map((row) => String(row.package_name))
+}
+
+async function fetchPackagesByName(
+  client: CatalogDatabaseClient,
+  packageNames: string[]
+) {
+  const packageMap = new Map<
+    string,
+    {
+      repository_url: unknown
+      package_url: unknown
+      package_description: unknown
+      homepage_url: unknown
+      repository_stars: unknown
+      package_downloads: unknown
+      package_downloads_period: unknown
+      package_last_published_at: unknown
+    }
+  >()
+
+  if (packageNames.length === 0) {
+    return packageMap
+  }
+
+  const placeholders = packageNames.map(() => "?").join(", ")
+  const result = await client.execute({
+    sql: `
+      SELECT
+        package_name,
+        repository_url,
+        package_url,
+        package_description,
+        homepage_url,
+        repository_stars,
+        package_downloads,
+        package_downloads_period,
+        package_last_published_at
+      FROM packages
+      WHERE package_name IN (${placeholders})
+    `,
+    args: packageNames,
+  })
+
+  for (const row of result.rows) {
+    packageMap.set(String(row.package_name), {
+      repository_url: row.repository_url,
+      package_url: row.package_url,
+      package_description: row.package_description,
+      homepage_url: row.homepage_url,
+      repository_stars: row.repository_stars,
+      package_downloads: row.package_downloads,
+      package_downloads_period: row.package_downloads_period,
+      package_last_published_at: row.package_last_published_at,
+    })
+  }
+
+  return packageMap
+}
+
+async function resolveTotalApproximation(
+  client: CatalogDatabaseClient,
+  params: ParsedCatalogSearchParams,
+  clauses: string,
+  args: Array<string | number>,
+  visibleRowCount: number,
+  hasMore: boolean
+) {
+  if (params.offset !== 0) {
+    return estimateTotalFromPage(params, visibleRowCount, hasMore)
+  }
+
+  const countSql =
+    args.length === 0
+      ? "SELECT COUNT(*) AS total FROM packages"
+      : `
+        WITH merged_tags AS (
+          ${MERGED_TAGS_SQL}
+        )
+        SELECT COUNT(*) AS total
+        FROM packages p
+        ${clauses}
+      `
+  try {
+    const countResult = await client.execute({
+      sql: countSql,
+      args,
+    })
+
+    return normalizeNumber(countResult.rows[0]?.total)
+  } catch {
+    return estimateTotalFromPage(params, visibleRowCount, hasMore)
+  }
+}
+
+function estimateTotalFromPage(
+  params: ParsedCatalogSearchParams,
+  visibleRowCount: number,
+  hasMore: boolean
+) {
+  const currentMaxIndex = params.offset + visibleRowCount
+
+  if (!hasMore) {
+    return currentMaxIndex
+  }
+
+  return currentMaxIndex + params.limit
+}
+
+function buildTagFilterSubquery(tagCount: number) {
+  const placeholders = Array.from({ length: tagCount }, () => "?").join(", ")
+
+  return `
+    SELECT package_name
+    FROM (
+      SELECT package_name, tag_id
+      FROM package_tags
+      WHERE tag_id IN (${placeholders})
+      UNION ALL
+      SELECT package_name, tag_id
+      FROM repository_tags
+      WHERE tag_id IN (${placeholders})
+    ) AS filtered_tags
+    GROUP BY package_name
+    HAVING COUNT(DISTINCT tag_id) = ?
+  `
 }
 
 async function fetchTagsForPackageNames(
@@ -219,9 +332,7 @@ async function fetchTagsForPackageNames(
   const result = await client.execute({
     sql: `
       WITH merged_tags AS (
-        SELECT package_name, tag_id FROM package_tags
-        UNION
-        SELECT package_name, tag_id FROM repository_tags
+        ${MERGED_TAGS_SQL}
       )
       SELECT DISTINCT package_name, tag_id
       FROM merged_tags
@@ -240,6 +351,12 @@ async function fetchTagsForPackageNames(
 
   return tagMap
 }
+
+const MERGED_TAGS_SQL = `
+  SELECT package_name, tag_id FROM package_tags
+  UNION ALL
+  SELECT package_name, tag_id FROM repository_tags
+`
 
 function normalizeNullableString(value: unknown) {
   if (typeof value !== "string") {

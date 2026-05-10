@@ -44,6 +44,7 @@ describe("catalog core helpers", () => {
         tags: "UI, frontend, ui",
         limit: "9999",
         cursor: encodeCatalogCursor(40),
+        sort: "tags",
       })
     )
 
