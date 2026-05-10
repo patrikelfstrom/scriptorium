@@ -101,6 +101,75 @@ describe("npm catalog sync", () => {
     }
   })
 
+  it("resolves v-prefixed latest dist-tags when extracting published dates", async () => {
+    const database = await createTestCatalogDatabase()
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (url === "https://registry.npmjs.org/cson-safe") {
+        return createJsonResponse({
+          "dist-tags": { latest: "v1.0.5" },
+          time: {
+            "1.0.5": "2015-01-29T18:28:45.762Z",
+          },
+          versions: {
+            "1.0.5": {
+              description: "Safe parsing of CSON files",
+              homepage: "https://github.com/groupon/cson-safe",
+              repository: {
+                url: "https://github.com/groupon/cson-safe.git",
+              },
+            },
+          },
+        })
+      }
+
+      if (url === "https://api.github.com/graphql") {
+        return createJsonResponse({
+          data: {
+            repo_0: {
+              stargazerCount: 1234,
+              repositoryTopics: {
+                nodes: [],
+              },
+            },
+          },
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          { packageName: "cson-safe", packageDownloads: 1000 },
+        ],
+      })
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT repository_url, package_last_published_at
+          FROM packages
+          WHERE package_name = ?
+        `,
+        args: ["cson-safe"],
+      })
+
+      expect(packageRows.rows[0]).toMatchObject({
+        repository_url: "https://github.com/groupon/cson-safe",
+        package_last_published_at: "2015-01-29T18:28:45.762Z",
+      })
+    } finally {
+      vi.unstubAllGlobals()
+      await database.cleanup()
+    }
+  })
+
   it("keeps existing packages when later sync snapshots do not include them", async () => {
     const database = await createTestCatalogDatabase()
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
@@ -739,6 +808,160 @@ describe("npm catalog sync", () => {
         repository_url: "https://registry.npmjs.org/-/unpublished",
         package_description: "Unpublished package",
         package_downloads: 1000,
+        package_last_published_at: null,
+      })
+    } finally {
+      vi.unstubAllGlobals()
+      await database.cleanup()
+    }
+  })
+
+  it("marks npm unpublished registry documents as removed and skips future resyncs", async () => {
+    const database = await createTestCatalogDatabase()
+    let npmRequestCount = 0
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (
+        url === "https://registry.npmjs.org/%40diotoborg%2Fomnis-necessitatibus"
+      ) {
+        npmRequestCount += 1
+
+        return createJsonResponse({
+          name: "@diotoborg/omnis-necessitatibus",
+          time: {
+            created: "2024-06-08T09:10:14.393Z",
+            modified: "2024-09-23T03:36:21.563Z",
+            unpublished: {
+              time: "2024-09-23T03:36:21.563Z",
+              versions: ["1.0.0"],
+            },
+          },
+          versions: {
+            "1.0.0": {
+              description: "Old package payload",
+            },
+          },
+        })
+      }
+
+      if (url === "https://api.github.com/graphql") {
+        throw new Error(
+          "GitHub should not be queried for unpublished packages."
+        )
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const firstResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          {
+            packageName: "@diotoborg/omnis-necessitatibus",
+            packageDownloads: 1000,
+          },
+        ],
+      })
+      const secondResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          {
+            packageName: "@diotoborg/omnis-necessitatibus",
+            packageDownloads: 1000,
+          },
+        ],
+      })
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT
+            repository_url,
+            package_description,
+            package_downloads,
+            package_last_published_at
+          FROM packages
+          WHERE package_name = ?
+        `,
+        args: ["@diotoborg/omnis-necessitatibus"],
+      })
+
+      expect(firstResult).toEqual({ syncedCount: 1 })
+      expect(secondResult).toEqual({ syncedCount: 0 })
+      expect(npmRequestCount).toBe(1)
+      expect(packageRows.rows[0]).toMatchObject({
+        repository_url: "https://registry.npmjs.org/-/unpublished",
+        package_description: "Unpublished package",
+        package_downloads: 1000,
+        package_last_published_at: null,
+      })
+    } finally {
+      vi.unstubAllGlobals()
+      await database.cleanup()
+    }
+  })
+
+  it("marks npm-view-unresolvable packages as removed when the registry payload is incomplete", async () => {
+    const database = await createTestCatalogDatabase()
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (url === "https://registry.npmjs.org/-") {
+        return createJsonResponse({
+          name: "-",
+          "dist-tags": { latest: "0.0.1" },
+          time: {
+            "0.0.1": "2020-04-02T11:48:52.339Z",
+          },
+          versions: {
+            "0.0.1": {
+              description:
+                "> Created using https://github.com/parzh/create-package-typescript",
+            },
+          },
+        })
+      }
+
+      if (url === "https://api.github.com/graphql") {
+        throw new Error(
+          "GitHub should not be queried for npm-view-unresolvable packages."
+        )
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const result = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [{ packageName: "-", packageDownloads: 1000 }],
+        npmViewRunner() {
+          return Promise.resolve(false)
+        },
+      })
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT repository_url, package_description, package_last_published_at
+          FROM packages
+          WHERE package_name = ?
+        `,
+        args: ["-"],
+      })
+
+      expect(result).toEqual({ syncedCount: 1 })
+      expect(packageRows.rows[0]).toMatchObject({
+        repository_url:
+          "https://registry.npmjs.org/-/unresolvable-via-npm-view",
+        package_description: "Unresolvable package",
         package_last_published_at: null,
       })
     } finally {

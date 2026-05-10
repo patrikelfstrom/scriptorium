@@ -1,10 +1,16 @@
+import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { promisify } from "node:util"
 
 import PQueue from "p-queue"
 import pRetry, { AbortError } from "p-retry"
 
 import type { CatalogDatabaseClient } from "./database"
+import {
+  resolveLatestPublishedAt,
+  resolveLatestVersionEntry,
+} from "./npm-registry"
 import {
   createReplaceTagStatements,
   createUpsertPackageStatement,
@@ -12,8 +18,10 @@ import {
   type CatalogPackageRecord,
 } from "./package-store"
 import {
+  createNpmViewUnresolvablePackageMarker,
   createUnpublishedPackageMarker,
   createRemovedPackageSql,
+  hasUnpublishedRegistryMarker,
   isSecurityHoldingPackage,
 } from "./package-removal"
 
@@ -26,6 +34,7 @@ const PROGRESS_INTERVAL_MS = 60_000
 const HTTP_TOO_MANY_REQUESTS = 429
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504])
 const require = createRequire(import.meta.url)
+const execFileAsync = promisify(execFile)
 
 type DownloadCountsModule = Record<string, number>
 
@@ -96,6 +105,7 @@ export type SyncNpmCatalogOptions = {
   githubBatchSize?: number
   shardCount?: number
   shardIndex?: number
+  npmViewRunner?: (packageName: string) => Promise<boolean>
 }
 
 export async function syncNpmCatalog(
@@ -556,11 +566,35 @@ async function fetchNpmPackageMetadata(
   }
 
   const payload = (await response.json()) as NpmRegistryDocument
-  const latestVersionTag = normalizeOptionalString(payload["dist-tags"]?.latest)
-  const latestVersion =
-    latestVersionTag && payload.versions
-      ? payload.versions[latestVersionTag]
-      : undefined
+
+  if (hasUnpublishedRegistryMarker(payload)) {
+    options.onProgress?.(
+      `Marking npm package ${packageName} as removed because the registry document is marked unpublished.`
+    )
+
+    const unpublishedMarker = createUnpublishedPackageMarker()
+
+    return {
+      isRemoved: true,
+      packageName,
+      packageUrl: createPackageUrl(packageName),
+      packageDescription: unpublishedMarker.packageDescription,
+      homepageUrl: unpublishedMarker.homepageUrl,
+      repositoryUrl: unpublishedMarker.repositoryUrl,
+      packageDownloads: entry.packageDownloads,
+      packageDownloadsPeriod: DEFAULT_DOWNLOADS_PERIOD,
+      packageLastPublishedAt: null,
+      packageTags: [],
+    }
+  }
+
+  const rawLatestVersionTag = normalizeOptionalString(
+    payload["dist-tags"]?.latest
+  )
+  const { latestVersionTag, latestVersion } = resolveLatestVersionEntry({
+    latestVersionTag: rawLatestVersionTag,
+    versions: payload.versions,
+  })
   const packageDescription =
     normalizeOptionalString(latestVersion?.description) ??
     normalizeOptionalString(payload.description) ??
@@ -574,20 +608,71 @@ async function fetchNpmPackageMetadata(
     normalizeRepositoryUrl(payload.repository) ??
     null
   const isRemoved = isSecurityHoldingPackage({
-    latestVersionTag,
+    latestVersionTag: rawLatestVersionTag ?? latestVersionTag,
     packageDescription,
     repositoryUrl,
     homepageUrl,
   })
+  const packageLastPublishedAt = extractLatestPublishedAt(
+    payload,
+    latestVersionTag
+  )
 
   if (isRemoved) {
     options.onProgress?.(
       `Marking npm package ${packageName} as removed because npm returned a security holding package.`
     )
+
+    return {
+      isRemoved,
+      packageName,
+      packageUrl: createPackageUrl(packageName),
+      packageDescription,
+      homepageUrl,
+      repositoryUrl,
+      packageDownloads: entry.packageDownloads,
+      packageDownloadsPeriod: DEFAULT_DOWNLOADS_PERIOD,
+      packageLastPublishedAt,
+      packageTags: [],
+    }
+  }
+
+  if (
+    shouldValidatePackageWithNpmView({
+      homepageUrl,
+      packageDescription,
+      packageLastPublishedAt,
+      repositoryUrl,
+    })
+  ) {
+    const npmViewResolves =
+      (await options.npmViewRunner?.(packageName)) ??
+      (await resolvePackageWithNpmView(packageName))
+
+    if (!npmViewResolves) {
+      options.onProgress?.(
+        `Marking npm package ${packageName} as removed because npm view could not resolve it.`
+      )
+
+      const npmViewMarker = createNpmViewUnresolvablePackageMarker()
+
+      return {
+        isRemoved: true,
+        packageName,
+        packageUrl: createPackageUrl(packageName),
+        packageDescription: npmViewMarker.packageDescription,
+        homepageUrl: npmViewMarker.homepageUrl,
+        repositoryUrl: npmViewMarker.repositoryUrl,
+        packageDownloads: entry.packageDownloads,
+        packageDownloadsPeriod: DEFAULT_DOWNLOADS_PERIOD,
+        packageLastPublishedAt: null,
+        packageTags: [],
+      }
+    }
   }
 
   return {
-    isRemoved,
+    isRemoved: false,
     packageName,
     packageUrl: createPackageUrl(packageName),
     packageDescription,
@@ -595,10 +680,8 @@ async function fetchNpmPackageMetadata(
     repositoryUrl,
     packageDownloads: entry.packageDownloads,
     packageDownloadsPeriod: DEFAULT_DOWNLOADS_PERIOD,
-    packageLastPublishedAt: extractLatestPublishedAt(payload, latestVersionTag),
-    packageTags: isRemoved
-      ? []
-      : normalizeKeywords(latestVersion?.keywords ?? payload.keywords),
+    packageLastPublishedAt,
+    packageTags: normalizeKeywords(latestVersion?.keywords ?? payload.keywords),
   }
 }
 
@@ -797,11 +880,62 @@ function extractLatestPublishedAt(
   payload: NpmRegistryDocument,
   latestVersionTag?: string
 ) {
-  if (!latestVersionTag) {
-    return null
-  }
+  return (
+    normalizeTimestamp(
+      resolveLatestPublishedAt({
+        latestVersionTag,
+        time: payload.time,
+      })
+    ) ?? null
+  )
+}
 
-  return normalizeTimestamp(payload.time?.[latestVersionTag]) ?? null
+function shouldValidatePackageWithNpmView(input: {
+  packageDescription: string | null
+  repositoryUrl: string | null
+  homepageUrl: string | null
+  packageLastPublishedAt: string | null
+}) {
+  return input.repositoryUrl == null || input.packageLastPublishedAt == null
+}
+
+async function resolvePackageWithNpmView(packageName: string) {
+  try {
+    await execFileAsync("npm", [
+      "view",
+      packageName,
+      "name",
+      "version",
+      "--json",
+    ])
+    return true
+  } catch (error) {
+    if (isNpmViewNotFoundError(error)) {
+      return false
+    }
+
+    throw error
+  }
+}
+
+function isNpmViewNotFoundError(error: unknown) {
+  const stderr =
+    error && typeof error === "object" && "stderr" in error
+      ? String((error as { stderr?: unknown }).stderr ?? "")
+      : ""
+  const combinedMessage = [
+    error instanceof Error ? error.message : String(error),
+    stderr,
+  ]
+    .join("\n")
+    .toLowerCase()
+
+  return (
+    combinedMessage.includes("npm error code e404") ||
+    combinedMessage.includes("no match found for version") ||
+    combinedMessage.includes("could not be found") ||
+    combinedMessage.includes("not in this registry")
+  )
 }
 
 function normalizeKeywords(value: unknown) {

@@ -5,6 +5,9 @@ const SECURITY_HOLDER_HOMEPAGE_URL =
 const SECURITY_HOLDER_VERSION_PATTERN = /(?:^|[.-])security(?:[.-]\d+)*$/i
 const UNPUBLISHED_DESCRIPTION = "unpublished package"
 const UNPUBLISHED_REPOSITORY_URL = "https://registry.npmjs.org/-/unpublished"
+const NPM_VIEW_UNRESOLVABLE_DESCRIPTION = "unresolvable package"
+const NPM_VIEW_UNRESOLVABLE_REPOSITORY_URL =
+  "https://registry.npmjs.org/-/unresolvable-via-npm-view"
 
 export function isSecurityHoldingPackage(input: {
   latestVersionTag?: string | null
@@ -46,6 +49,10 @@ export function createRemovedPackageSql(alias: string) {
       ${alias}.repository_url = '${UNPUBLISHED_REPOSITORY_URL}'
       AND LOWER(COALESCE(${alias}.package_description, '')) = '${UNPUBLISHED_DESCRIPTION}'
     )
+    OR (
+      ${alias}.repository_url = '${NPM_VIEW_UNRESOLVABLE_REPOSITORY_URL}'
+      AND LOWER(COALESCE(${alias}.package_description, '')) = '${NPM_VIEW_UNRESOLVABLE_DESCRIPTION}'
+    )
   `
 }
 
@@ -55,6 +62,25 @@ export function createUnpublishedPackageMarker() {
     homepageUrl: null,
     repositoryUrl: UNPUBLISHED_REPOSITORY_URL,
   }
+}
+
+export function createNpmViewUnresolvablePackageMarker() {
+  return {
+    packageDescription: "Unresolvable package",
+    homepageUrl: null,
+    repositoryUrl: NPM_VIEW_UNRESOLVABLE_REPOSITORY_URL,
+  }
+}
+
+export function hasUnpublishedRegistryMarker(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return false
+  }
+
+  return (
+    "time" in value &&
+    Boolean((value as { time?: { unpublished?: unknown } }).time?.unpublished)
+  )
 }
 
 function normalizeOptionalString(value: unknown) {
