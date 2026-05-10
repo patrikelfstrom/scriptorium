@@ -47,15 +47,6 @@ export function SearchFilter({
       : -1
 
   useEffect(() => {
-    if (tagSuggestions.length > 0) {
-      return
-    }
-
-    setIsSuggestionsOpen(false)
-    setActiveSuggestionIndex(-1)
-  }, [setActiveSuggestionIndex, tagSuggestions.length])
-
-  useEffect(() => {
     if (!isSuggestionsOpen) {
       return
     }
