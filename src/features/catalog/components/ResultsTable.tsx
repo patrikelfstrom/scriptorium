@@ -257,7 +257,7 @@ export function ResultsTable({
 
 const LOAD_AHEAD_ROWS = 12
 const ESTIMATED_ROW_HEIGHT = 68
-const GITHUB_REPOSITORY_LABEL_MAX_LENGTH = 200
+const GITHUB_REPOSITORY_LABEL_MAX_LENGTH = 48
 const SCROLL_LOAD_DEBOUNCE_MS = 120
 
 function TableMessage({
@@ -356,7 +356,7 @@ function LoadedRowCells({
             )}
           </div>
           {row.repositoryUrl || row.packageUrl || row.homepageUrl ? (
-            <div className="ml-auto flex shrink-0 items-center gap-4 text-xs text-muted-foreground">
+            <div className="ml-auto flex shrink-0 items-center gap-4 text-xs text-muted-foreground min-[1200px]:max-w-[45%] min-[1200px]:min-w-0 min-[1200px]:shrink">
               {row.repositoryUrl ? (
                 <MetadataLink
                   href={row.repositoryUrl}
@@ -366,6 +366,7 @@ function LoadedRowCells({
                   )}
                   title={row.repositoryLabel ?? "repository"}
                   ariaLabel={row.repositoryLabel ?? "repository"}
+                  className="shrink-0 min-[1200px]:min-w-0 min-[1200px]:flex-1 min-[1200px]:basis-0"
                   icon={
                     isGitHubRepositoryUrl(row.repositoryUrl) ? (
                       <GitHubIcon className="size-3.5" />
@@ -379,6 +380,7 @@ function LoadedRowCells({
               {row.packageUrl ? (
                 <MetadataLink
                   href={row.packageUrl}
+                  className="shrink-0 min-[1200px]:min-w-0 min-[1200px]:flex-1 min-[1200px]:basis-0"
                   label="npm"
                   icon={<NpmIcon className="size-3.5" />}
                 />
@@ -386,6 +388,7 @@ function LoadedRowCells({
               {row.homepageUrl ? (
                 <MetadataLink
                   href={row.homepageUrl}
+                  className="shrink-0 min-[1200px]:min-w-0 min-[1200px]:flex-1 min-[1200px]:basis-0"
                   label="homepage"
                   icon={<LinkIcon className="size-3.5" />}
                 />
@@ -451,6 +454,7 @@ function isGitHubRepositoryUrl(repositoryUrl?: string) {
 
 function MetadataLink({
   ariaLabel,
+  className,
   href,
   icon,
   label,
@@ -458,6 +462,7 @@ function MetadataLink({
   title,
 }: {
   ariaLabel?: string
+  className?: string
   href: string
   icon?: ReactNode
   label: string
@@ -467,16 +472,16 @@ function MetadataLink({
   return (
     <a
       aria-label={ariaLabel}
-      className={`inline-flex items-center gap-1.5 underline decoration-border/80 underline-offset-4 transition-colors hover:text-foreground ${
+      className={`inline-flex min-w-0 items-center gap-1.5 underline decoration-border/80 underline-offset-4 transition-colors hover:text-foreground ${
         monospace ? "font-mono" : ""
-      }`}
+      } ${className ?? ""}`}
       href={href}
       target="_blank"
       rel="noreferrer"
       title={title}
     >
-      {icon}
-      <span>{label}</span>
+      {icon ? <span className="shrink-0">{icon}</span> : null}
+      <span className="hidden min-w-0 truncate min-[1200px]:block">{label}</span>
     </a>
   )
 }
