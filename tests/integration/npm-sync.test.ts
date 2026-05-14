@@ -546,6 +546,281 @@ describe("npm catalog sync", () => {
     }
   })
 
+  it("continues syncing when GitHub repository enrichment is forbidden", async () => {
+    const database = await createTestCatalogDatabase()
+    let syncRound = 0
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (url === "https://registry.npmjs.org/react") {
+        syncRound += 1
+
+        if (syncRound === 1) {
+          return createJsonResponse({
+            "dist-tags": { latest: "19.0.0" },
+            time: {
+              "19.0.0": "2026-01-01T00:00:00.000Z",
+            },
+            versions: {
+              "19.0.0": {
+                description: "UI library",
+                homepage: "https://react.dev",
+                repository: {
+                  url: "git+https://github.com/facebook/react.git",
+                },
+                keywords: ["react", "ui"],
+              },
+            },
+          })
+        }
+
+        return createJsonResponse({
+          "dist-tags": { latest: "19.0.1" },
+          time: {
+            "19.0.1": "2026-01-02T00:00:00.000Z",
+          },
+          versions: {
+            "19.0.1": {
+              description: "UI library updated",
+              homepage: "https://react.dev/reference/react",
+              repository: {
+                url: "https://github.com/facebook/react",
+              },
+              keywords: ["react", "compiler"],
+            },
+          },
+        })
+      }
+
+      if (url === "https://api.github.com/graphql") {
+        if (syncRound === 1) {
+          return createJsonResponse({
+            data: {
+              repo_0: {
+                stargazerCount: 200_000,
+                repositoryTopics: {
+                  nodes: [{ topic: { name: "frontend" } }],
+                },
+              },
+            },
+          })
+        }
+
+        return new Response(
+          JSON.stringify({
+            message: "You have exceeded a secondary rate limit.",
+          }),
+          {
+            status: 403,
+            statusText: "Forbidden",
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+            },
+          }
+        )
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const firstResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          { packageName: "react", packageDownloads: 1000 },
+        ],
+      })
+      const secondResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          { packageName: "react", packageDownloads: 1100 },
+        ],
+      })
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT
+            repository_url,
+            package_description,
+            homepage_url,
+            repository_stars,
+            package_downloads,
+            package_last_published_at
+          FROM packages
+          WHERE package_name = ?
+        `,
+        args: ["react"],
+      })
+      const packageTags = await database.client.execute({
+        sql: `
+          SELECT tag_id
+          FROM package_tags
+          WHERE package_name = ?
+          ORDER BY tag_id ASC
+        `,
+        args: ["react"],
+      })
+      const repositoryTags = await database.client.execute({
+        sql: `
+          SELECT tag_id
+          FROM repository_tags
+          WHERE package_name = ?
+          ORDER BY tag_id ASC
+        `,
+        args: ["react"],
+      })
+
+      expect(firstResult).toEqual({ syncedCount: 1 })
+      expect(secondResult).toEqual({ syncedCount: 1 })
+      expect(packageRows.rows[0]).toMatchObject({
+        repository_url: "https://github.com/facebook/react",
+        package_description: "UI library updated",
+        homepage_url: "https://react.dev/reference/react",
+        repository_stars: 200_000,
+        package_downloads: 1100,
+        package_last_published_at: "2026-01-02T00:00:00.000Z",
+      })
+      expect(packageTags.rows.map((row) => row.tag_id)).toEqual([
+        "compiler",
+        "react",
+      ])
+      expect(repositoryTags.rows.map((row) => row.tag_id)).toEqual([
+        "front-end",
+      ])
+    } finally {
+      vi.unstubAllGlobals()
+      await database.cleanup()
+    }
+  })
+
+  it("clears stale GitHub metadata when repository enrichment is forbidden after a repo change", async () => {
+    const database = await createTestCatalogDatabase()
+    let syncRound = 0
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (url === "https://registry.npmjs.org/pkg") {
+        syncRound += 1
+
+        if (syncRound === 1) {
+          return createJsonResponse({
+            "dist-tags": { latest: "1.0.0" },
+            time: {
+              "1.0.0": "2026-01-01T00:00:00.000Z",
+            },
+            versions: {
+              "1.0.0": {
+                description: "Original package",
+                repository: {
+                  url: "https://github.com/example/old-repo",
+                },
+                keywords: ["one"],
+              },
+            },
+          })
+        }
+
+        return createJsonResponse({
+          "dist-tags": { latest: "1.0.1" },
+          time: {
+            "1.0.1": "2026-01-02T00:00:00.000Z",
+          },
+          versions: {
+            "1.0.1": {
+              description: "Moved package",
+              repository: {
+                url: "https://github.com/example/new-repo",
+              },
+              keywords: ["two"],
+            },
+          },
+        })
+      }
+
+      if (url === "https://api.github.com/graphql") {
+        if (syncRound === 1) {
+          return createJsonResponse({
+            data: {
+              repo_0: {
+                stargazerCount: 111,
+                repositoryTopics: {
+                  nodes: [{ topic: { name: "alpha" } }],
+                },
+              },
+            },
+          })
+        }
+
+        return new Response(
+          JSON.stringify({
+            message: "You have exceeded a secondary rate limit.",
+          }),
+          {
+            status: 403,
+            statusText: "Forbidden",
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+            },
+          }
+        )
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [{ packageName: "pkg", packageDownloads: 1000 }],
+      })
+      await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [{ packageName: "pkg", packageDownloads: 1100 }],
+      })
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT
+            repository_url,
+            package_description,
+            repository_stars,
+            package_downloads
+          FROM packages
+          WHERE package_name = ?
+        `,
+        args: ["pkg"],
+      })
+      const repositoryTags = await database.client.execute({
+        sql: `
+          SELECT tag_id
+          FROM repository_tags
+          WHERE package_name = ?
+          ORDER BY tag_id ASC
+        `,
+        args: ["pkg"],
+      })
+
+      expect(packageRows.rows[0]).toMatchObject({
+        repository_url: "https://github.com/example/new-repo",
+        package_description: "Moved package",
+        repository_stars: null,
+        package_downloads: 1100,
+      })
+      expect(repositoryTags.rows).toEqual([])
+    } finally {
+      vi.unstubAllGlobals()
+      await database.cleanup()
+    }
+  })
+
   it("resets a legacy catalog schema to the new package layout", async () => {
     const database = await createTestCatalogDatabase()
 

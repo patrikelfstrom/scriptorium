@@ -94,6 +94,30 @@ type GitHubRepositoryBatchResponse = Record<
   | undefined
 >
 
+class GitHubMetadataFetchError extends Error {
+  status: number
+  statusText: string
+  responseBody: string | null
+
+  constructor(
+    status: number,
+    statusText: string,
+    responseBody: string | null = null
+  ) {
+    const responseSuffix = responseBody
+      ? ` (${truncateSingleLine(responseBody, 200)})`
+      : ""
+
+    super(
+      `Failed to fetch GitHub repository metadata: ${status} ${statusText}${responseSuffix}`
+    )
+    this.name = "GitHubMetadataFetchError"
+    this.status = status
+    this.statusText = statusText
+    this.responseBody = responseBody
+  }
+}
+
 export type SyncNpmCatalogOptions = {
   githubToken: string
   onProgress?: (message: string) => void
@@ -131,6 +155,10 @@ export async function syncNpmCatalog(
   )
   options.onProgress?.(
     `Fetched npm registry metadata for ${packageMetadata.length} packages.`
+  )
+  const existingRepositoryUrlsByPackage = await loadExistingRepositoryUrls(
+    client,
+    packageMetadata.map((item) => item.packageName)
   )
 
   const githubRepositories = new Map<string, GitHubRepositoryRef>()
@@ -185,8 +213,10 @@ export async function syncNpmCatalog(
             repositoryTags: [],
           }
         : getRepositoryEnrichmentOutcome(
+            item.packageName,
             item.repositoryUrl,
             repositoryRef,
+            existingRepositoryUrlsByPackage,
             githubMetadataByRepository
           )
 
@@ -324,8 +354,10 @@ export function parseGitHubRepositoryRef(repositoryUrl?: string | null) {
 }
 
 function getRepositoryEnrichmentOutcome(
+  packageName: string,
   repositoryUrl: string | null,
   repositoryRef: GitHubRepositoryRef | undefined,
+  existingRepositoryUrlsByPackage: Map<string, string | null>,
   githubMetadataByRepository: GitHubRepositoryMetadataMap
 ): RepositoryEnrichmentOutcome {
   if (!repositoryUrl) {
@@ -345,7 +377,23 @@ function getRepositoryEnrichmentOutcome(
   )
 
   if (!githubMetadata) {
-    return { kind: "preserve" }
+    const previousRepositoryRef = parseGitHubRepositoryRef(
+      existingRepositoryUrlsByPackage.get(packageName) ?? null
+    )
+
+    if (
+      previousRepositoryRef &&
+      previousRepositoryRef.owner === repositoryRef.owner &&
+      previousRepositoryRef.name === repositoryRef.name
+    ) {
+      return { kind: "preserve" }
+    }
+
+    return {
+      kind: "replace",
+      repositoryStars: null,
+      repositoryTags: [],
+    }
   }
 
   return {
@@ -389,6 +437,45 @@ async function loadRemovedPackageNames(client: CatalogDatabaseClient) {
   })
 
   return new Set(result.rows.map((row) => String(row.package_name)))
+}
+
+async function loadExistingRepositoryUrls(
+  client: CatalogDatabaseClient,
+  packageNames: string[]
+) {
+  const repositoryUrls = new Map<string, string | null>()
+  const uniquePackageNames = Array.from(new Set(packageNames))
+
+  for (let index = 0; index < uniquePackageNames.length; index += 500) {
+    const batch = uniquePackageNames.slice(index, index + 500)
+
+    if (batch.length === 0) {
+      continue
+    }
+
+    const placeholders = batch.map(() => "?").join(", ")
+    const result = await client.execute({
+      sql: `
+        SELECT package_name, repository_url
+        FROM packages
+        WHERE package_name IN (${placeholders})
+      `,
+      args: batch,
+    })
+
+    for (const row of result.rows) {
+      repositoryUrls.set(
+        String(row.package_name),
+        normalizeStoredUrl(row.repository_url)
+      )
+    }
+  }
+
+  return repositoryUrls
+}
+
+function normalizeStoredUrl(value: unknown) {
+  return typeof value === "string" ? value : null
 }
 
 function normalizeDownloadCountSelection(
@@ -701,11 +788,24 @@ async function fetchGitHubRepositoryMetadataBatch(
 
   for (let index = 0; index < repositories.length; index += githubBatchSize) {
     const batch = repositories.slice(index, index + githubBatchSize)
-    const batchMetadata = await fetchGitHubRepositoryMetadata(
-      batch,
-      githubGraphqlUrl,
-      input.githubToken
-    )
+    let batchMetadata: GitHubRepositoryMetadataMap
+
+    try {
+      batchMetadata = await fetchGitHubRepositoryMetadata(
+        batch,
+        githubGraphqlUrl,
+        input.githubToken
+      )
+    } catch (error) {
+      if (isRecoverableGitHubMetadataError(error)) {
+        input.onProgress?.(
+          `GitHub repository enrichment became unavailable (${error.message}). Preserving previously synced repository metadata for the remaining ${repositories.length - index} repositories.`
+        )
+        break
+      }
+
+      throw error
+    }
 
     for (const [key, value] of batchMetadata) {
       repositoryMetadata.set(key, value)
@@ -742,8 +842,10 @@ async function fetchGitHubRepositoryMetadata(
   })
 
   if (!response.ok) {
-    throw new Error(
-      `Failed to fetch GitHub repository metadata: ${response.status} ${response.statusText}`
+    throw new GitHubMetadataFetchError(
+      response.status,
+      response.statusText,
+      await response.text()
     )
   }
 
@@ -792,6 +894,12 @@ function hasGitHubRepositoryData(data?: GitHubRepositoryBatchResponse) {
   return Object.values(data).some((value) => value != null)
 }
 
+function isRecoverableGitHubMetadataError(
+  error: unknown
+): error is GitHubMetadataFetchError {
+  return error instanceof GitHubMetadataFetchError && error.status === 403
+}
+
 function createGitHubRepositoryMetadataQuery(
   repositories: GitHubRepositoryRef[]
 ) {
@@ -819,6 +927,16 @@ function createGitHubRepositoryMetadataQuery(
 
 function createGitHubAlias(index: number) {
   return `repo_${index}`
+}
+
+function truncateSingleLine(value: string, maxLength: number) {
+  const normalizedValue = value.replace(/\s+/g, " ").trim()
+
+  if (normalizedValue.length <= maxLength) {
+    return normalizedValue
+  }
+
+  return `${normalizedValue.slice(0, maxLength - 3)}...`
 }
 
 async function retryableFetch(url: string, init?: RequestInit) {
