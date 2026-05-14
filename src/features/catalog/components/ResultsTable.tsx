@@ -67,56 +67,24 @@ export function ResultsTable({
     { length: Math.min(totalRowCount, 20) },
     (_, index) => index
   )
+  const loadRange = getLoadRangeForVirtualRows(virtualRows, totalRowCount)
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 })
   }, [queryStateKey])
 
   useEffect(() => {
-    const scrollElement = scrollRef.current
-
-    if (!scrollElement || totalRowCount === 0) {
+    if (totalRowCount === 0) {
       return
     }
 
-    const maybeLoadVisibleRange = () => {
-      const visibleStartIndex = Math.floor(
-        scrollElement.scrollTop / ESTIMATED_ROW_HEIGHT
-      )
-      const visibleEndIndex =
-        Math.ceil(
-          (scrollElement.scrollTop + scrollElement.clientHeight) /
-            ESTIMATED_ROW_HEIGHT
-        ) + LOAD_AHEAD_ROWS
-
-      loadRowsForRange(visibleStartIndex, visibleEndIndex)
-    }
-    let scrollIdleTimeoutId: number | undefined
-
-    const debouncedLoadVisibleRange = () => {
-      if (scrollIdleTimeoutId) {
-        clearTimeout(scrollIdleTimeoutId)
-      }
-
-      scrollIdleTimeoutId = window.setTimeout(
-        maybeLoadVisibleRange,
-        SCROLL_LOAD_DEBOUNCE_MS
-      )
+    if (!loadRange) {
+      loadRowsForRange(0, Math.min(totalRowCount - 1, LOAD_AHEAD_ROWS))
+      return
     }
 
-    maybeLoadVisibleRange()
-    scrollElement.addEventListener("scroll", debouncedLoadVisibleRange, {
-      passive: true,
-    })
-
-    return () => {
-      if (scrollIdleTimeoutId) {
-        clearTimeout(scrollIdleTimeoutId)
-      }
-
-      scrollElement.removeEventListener("scroll", debouncedLoadVisibleRange)
-    }
-  }, [loadRowsForRange, totalRowCount, queryStateKey])
+    loadRowsForRange(loadRange.startIndex, loadRange.endIndex)
+  }, [loadRange, loadRowsForRange, queryStateKey, totalRowCount])
 
   if (isLoading && rows.length === 0) {
     return <TableMessage message="Loading packages..." />
@@ -273,7 +241,26 @@ export function ResultsTable({
 const LOAD_AHEAD_ROWS = 12
 const ESTIMATED_ROW_HEIGHT = 68
 const GITHUB_REPOSITORY_LABEL_MAX_LENGTH = 48
-const SCROLL_LOAD_DEBOUNCE_MS = 120
+
+function getLoadRangeForVirtualRows(
+  virtualRows: Array<{ index: number }>,
+  totalRowCount: number
+) {
+  if (totalRowCount === 0 || virtualRows.length === 0) {
+    return null
+  }
+
+  const startIndex = Math.max(0, virtualRows[0]?.index ?? 0)
+  const endIndex = Math.min(
+    totalRowCount - 1,
+    (virtualRows[virtualRows.length - 1]?.index ?? startIndex) + LOAD_AHEAD_ROWS
+  )
+
+  return {
+    endIndex,
+    startIndex,
+  }
+}
 
 function TableMessage({
   message,
