@@ -2,6 +2,7 @@ import {
   canonicalizeCatalogTags,
   parseCatalogSearchParams,
   parseCatalogTagListParams,
+  tokenizeCatalogQuery,
 } from "../shared/catalog"
 import type { CatalogTagListResponse } from "../shared/catalog"
 import {
@@ -15,6 +16,18 @@ export type WorkerEnv = {
   SCRIPTORIUM_DATA_DIR?: string
   TURSO_DATABASE_URL?: string
   TURSO_AUTH_TOKEN?: string
+  CATALOG_CACHE?: CatalogCacheNamespace
+}
+
+type CatalogCacheNamespace = {
+  get(key: string, type: "json"): Promise<unknown | null>
+  put(
+    key: string,
+    value: string,
+    options?: {
+      expirationTtl?: number
+    }
+  ): Promise<void>
 }
 
 const corsHeaders = {
@@ -28,6 +41,9 @@ const TAG_CACHE_CONTROL =
 const SEARCH_CACHE_CONTROL =
   "public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400"
 const TAG_MEMORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const TAG_KV_CACHE_TTL_SECONDS = 24 * 60 * 60
+const SEARCH_KV_CACHE_TTL_SECONDS = 60 * 60
+const CATALOG_CACHE_VERSION = "v1"
 
 const schemaReadyPromises = new Map<string, Promise<void>>()
 const tagPayloadCache = new Map<
@@ -79,6 +95,20 @@ async function handleSearchRequest(url: URL, env: WorkerEnv) {
     return edgeCachedResponse
   }
 
+  const databaseIdentity = getCatalogDatabaseIdentity(env)
+  const kvCacheKey = await createKvCacheKey("search", databaseIdentity, request)
+  const kvCachedPayload = await getKvCachedPayload<
+    Awaited<ReturnType<typeof searchCatalog>>
+  >(env, kvCacheKey)
+
+  if (kvCachedPayload) {
+    const response = jsonResponse(kvCachedPayload, 200, {
+      "Cache-Control": SEARCH_CACHE_CONTROL,
+    })
+    await cacheEdgeResponse(request, response)
+    return response
+  }
+
   await ensureCatalogSchemaReady(env)
 
   const client = createCatalogDatabaseClient(env)
@@ -90,6 +120,12 @@ async function handleSearchRequest(url: URL, env: WorkerEnv) {
       "Cache-Control": SEARCH_CACHE_CONTROL,
     })
 
+    await putKvCachedPayload(
+      env,
+      kvCacheKey,
+      payload,
+      SEARCH_KV_CACHE_TTL_SECONDS
+    )
     await cacheEdgeResponse(request, response)
 
     return response
@@ -110,7 +146,7 @@ function createCanonicalSearchRequest(
   })
 
   if (params.query) {
-    searchParams.set("q", params.query)
+    searchParams.set("q", tokenizeCatalogQuery(params.query).join(" "))
   }
 
   const normalizedTags = canonicalizeCatalogTags(params.tags)
@@ -144,6 +180,25 @@ async function handleTagsRequest(request: Request, _url: URL, env: WorkerEnv) {
     })
   }
 
+  const kvCacheKey = await createKvCacheKey("tags", databaseIdentity, request)
+  const kvCachedPayload = await getKvCachedPayload<CatalogTagListResponse>(
+    env,
+    kvCacheKey
+  )
+
+  if (kvCachedPayload) {
+    tagPayloadCache.set(databaseIdentity, {
+      expiresAt: Date.now() + TAG_MEMORY_CACHE_TTL_MS,
+      payload: kvCachedPayload,
+    })
+
+    const response = jsonResponse(kvCachedPayload, 200, {
+      "Cache-Control": TAG_CACHE_CONTROL,
+    })
+    await cacheEdgeResponse(request, response)
+    return response
+  }
+
   await ensureCatalogSchemaReady(env)
 
   const client = createCatalogDatabaseClient(env)
@@ -158,6 +213,7 @@ async function handleTagsRequest(request: Request, _url: URL, env: WorkerEnv) {
       expiresAt: Date.now() + TAG_MEMORY_CACHE_TTL_MS,
       payload,
     })
+    await putKvCachedPayload(env, kvCacheKey, payload, TAG_KV_CACHE_TTL_SECONDS)
     await cacheEdgeResponse(request, response)
 
     return response
@@ -239,6 +295,60 @@ function getEdgeCache() {
   }
 
   return runtimeCaches.caches?.default
+}
+
+async function getKvCachedPayload<T>(env: WorkerEnv, key: string) {
+  const cache = env.CATALOG_CACHE
+
+  if (!cache) {
+    return null
+  }
+
+  try {
+    return (await cache.get(key, "json")) as T | null
+  } catch {
+    return null
+  }
+}
+
+async function putKvCachedPayload<T>(
+  env: WorkerEnv,
+  key: string,
+  payload: T,
+  expirationTtl: number
+) {
+  const cache = env.CATALOG_CACHE
+
+  if (!cache) {
+    return
+  }
+
+  try {
+    await cache.put(key, JSON.stringify(payload), { expirationTtl })
+  } catch {
+    // Cache writes are best-effort; serve the fresh payload even if KV fails.
+  }
+}
+
+async function createKvCacheKey(
+  scope: "search" | "tags",
+  databaseIdentity: string,
+  request: Request
+) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      [CATALOG_CACHE_VERSION, scope, databaseIdentity, request.url].join("\n")
+    )
+  )
+
+  return `${CATALOG_CACHE_VERSION}:${scope}:${toHex(digest)}`
+}
+
+function toHex(buffer: ArrayBuffer) {
+  return Array.from(new Uint8Array(buffer), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("")
 }
 
 function jsonResponse(

@@ -5,3 +5,7 @@ keep_vars = true
 
 [observability]
 enabled = true
+
+[[kv_namespaces]]
+binding = "CATALOG_CACHE"
+id = "1adb96b587f24408bc93a9a0c9f0ef2b"

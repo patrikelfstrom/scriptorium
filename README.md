@@ -21,6 +21,7 @@ Recommended setup:
 
 - Connect the Pages project to this GitHub repository in Cloudflare
 - Connect the Worker to this GitHub repository with Workers Builds in Cloudflare
+- Bind a Workers KV namespace as `CATALOG_CACHE` for persistent API response caching across regions
 - Keep GitHub Actions as validation-only CI
 
 Set `VITE_API_BASE_URL` in the Cloudflare Pages build environment only if production uses a separate API hostname.
@@ -32,6 +33,15 @@ Set these secrets in the Cloudflare Worker runtime, not in GitHub Actions:
 - `TURSO_AUTH_TOKEN`
 
 The scheduled catalog refresh workflow still reads Turso directly from GitHub Actions, so keep `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `GITHUB_TOKEN` configured as GitHub repository secrets for that job as well. The default workflow refreshes the top `30,000` packages in `14` stable shards, running `2` shards per day for full weekly coverage.
+
+To enable the KV cache binding with Wrangler, add a namespace similar to:
+
+```toml
+[[kv_namespaces]]
+binding = "CATALOG_CACHE"
+id = "<production-namespace-id>"
+preview_id = "<preview-namespace-id>"
+```
 
 ## Local development
 
@@ -110,6 +120,7 @@ pnpm verify
 - `VITE_API_BASE_URL`: frontend API origin override for local or split-origin deployments
 - `TURSO_DATABASE_URL`: Turso/libSQL database URL for the worker and sync scripts
 - `TURSO_AUTH_TOKEN`: Turso auth token when using remote Turso
+- `CATALOG_CACHE`: optional Workers KV binding for persistent cross-region caching of `/api/search` and `/api/tags`
 - `GITHUB_TOKEN`: required GitHub token for repository stars/topics enrichment during sync
 - `NPM_SYNC_LIMIT`: optional backward-compatible alias for `NPM_SYNC_TOP_PACKAGE_LIMIT`
 - `NPM_SYNC_TOP_PACKAGE_LIMIT`: optional number of top download-count packages eligible for sync, defaults to `10000`
