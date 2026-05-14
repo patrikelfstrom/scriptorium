@@ -25,7 +25,14 @@ export function createPackageUrl(packageName: string) {
 }
 
 export function encodePackageNameForPage(packageName: string) {
-  return packageName.split("/").map(encodeURIComponent).join("/")
+  return packageName
+    .split("/")
+    .map((segment, index) =>
+      index === 0 && segment.startsWith("@")
+        ? `@${encodeURIComponent(segment.slice(1))}`
+        : encodeURIComponent(segment)
+    )
+    .join("/")
 }
 
 export async function upsertPackage(

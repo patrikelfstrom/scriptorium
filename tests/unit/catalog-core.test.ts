@@ -84,9 +84,10 @@ describe("catalog core helpers", () => {
 
   it("builds package URLs", () => {
     expect(createPackageUrl("@scope/pkg")).toBe(
-      "https://www.npmjs.com/package/%40scope/pkg"
+      "https://www.npmjs.com/package/@scope/pkg"
     )
-    expect(encodePackageNameForPage("@scope/pkg")).toBe("%40scope/pkg")
+    expect(encodePackageNameForPage("@scope/pkg")).toBe("@scope/pkg")
+    expect(encodePackageNameForPage("react")).toBe("react")
   })
 
   it("selects top download count entries", () => {
