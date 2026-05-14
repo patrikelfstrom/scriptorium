@@ -408,17 +408,21 @@ function LoadedRowCells({
               {row.packageUrl ? (
                 <MetadataLink
                   href={row.packageUrl}
-                  className="shrink-0 min-[1200px]:min-w-0 min-[1200px]:flex-1 min-[1200px]:basis-0"
+                  className="shrink-0"
                   label="npm"
+                  labelClassName="hidden whitespace-nowrap min-[2000px]:inline"
                   icon={<NpmIcon className="size-3.5" />}
+                  truncateLabel={false}
                 />
               ) : null}
               {row.homepageUrl ? (
                 <MetadataLink
                   href={row.homepageUrl}
-                  className="shrink-0 min-[1200px]:min-w-0 min-[1200px]:flex-1 min-[1200px]:basis-0"
+                  className="shrink-0"
                   label="homepage"
+                  labelClassName="hidden whitespace-nowrap min-[2000px]:inline"
                   icon={<LinkIcon className="size-3.5" />}
+                  truncateLabel={false}
                 />
               ) : null}
             </div>
@@ -494,16 +498,20 @@ function MetadataLink({
   href,
   icon,
   label,
+  labelClassName,
   monospace = false,
   title,
+  truncateLabel = true,
 }: {
   ariaLabel?: string
   className?: string
   href: string
   icon?: ReactNode
   label: string
+  labelClassName?: string
   monospace?: boolean
   title?: string
+  truncateLabel?: boolean
 }) {
   return (
     <a
@@ -517,7 +525,14 @@ function MetadataLink({
       title={title}
     >
       {icon ? <span className="shrink-0">{icon}</span> : null}
-      <span className="hidden min-w-0 truncate min-[1200px]:block">
+      <span
+        className={
+          labelClassName ??
+          `hidden min-w-0 min-[1200px]:block ${
+            truncateLabel ? "truncate" : "whitespace-nowrap"
+          }`
+        }
+      >
         {label}
       </span>
     </a>
