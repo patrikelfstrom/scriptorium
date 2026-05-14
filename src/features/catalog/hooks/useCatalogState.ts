@@ -18,33 +18,65 @@ export function useCatalogState() {
   const [searchText, setSearchText] = useState(initialState.searchText)
   const [selectedTags, setSelectedTags] = useState(initialState.selectedTags)
   const [sortState, setSortState] = useState(initialState.sortState)
-  const debouncedSearchText = useDebouncedValue(searchText, 300)
+  const [debouncedSearchText, setDebouncedSearchText] = useState(
+    initialState.searchText
+  )
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearchText(searchText)
+    }, 300)
+
+    return () => {
+      window.clearTimeout(timeout)
+    }
+  }, [searchText])
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return
     }
 
-    const searchParams = new URLSearchParams()
+    const currentLocationState = getInitialCatalogState()
+    const nextState = {
+      searchText: debouncedSearchText,
+      selectedTags,
+      sortState,
+    }
+    const nextUrl = buildCatalogUrl(nextState)
 
-    if (debouncedSearchText) {
-      searchParams.set("q", debouncedSearchText)
+    if (nextUrl === getCurrentUrl()) {
+      return
     }
 
-    if (selectedTags.length > 0) {
-      searchParams.set("tags", selectedTags.join(","))
+    if (shouldPushHistoryEntry(currentLocationState, nextState)) {
+      window.history.pushState(window.history.state, "", nextUrl)
+      return
     }
-
-    searchParams.set("sort", sortState.column)
-    searchParams.set("direction", sortState.direction)
-
-    const search = searchParams.toString()
-    const nextUrl = search
-      ? `${window.location.pathname}?${search}`
-      : window.location.pathname
 
     window.history.replaceState(window.history.state, "", nextUrl)
-  }, [debouncedSearchText, selectedTags, sortState.column, sortState.direction])
+  }, [debouncedSearchText, selectedTags, sortState])
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    function handlePopState() {
+      const nextState = getInitialCatalogState()
+
+      setSearchText(nextState.searchText)
+      setDebouncedSearchText(nextState.searchText)
+      setSelectedTags(nextState.selectedTags)
+      setSortState(nextState.sortState)
+    }
+
+    window.addEventListener("popstate", handlePopState)
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState)
+    }
+  }, [])
 
   return {
     debouncedSearchText,
@@ -78,18 +110,39 @@ function getInitialCatalogState() {
   }
 }
 
-function useDebouncedValue<T>(value: T, delayMs: number) {
-  const [debouncedValue, setDebouncedValue] = useState(value)
+function buildCatalogUrl(state: {
+  searchText: string
+  selectedTags: string[]
+  sortState: SortState
+}) {
+  const searchParams = new URLSearchParams()
 
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setDebouncedValue(value)
-    }, delayMs)
+  if (state.searchText) {
+    searchParams.set("q", state.searchText)
+  }
 
-    return () => {
-      window.clearTimeout(timeout)
-    }
-  }, [delayMs, value])
+  if (state.selectedTags.length > 0) {
+    searchParams.set("tags", state.selectedTags.join(","))
+  }
 
-  return debouncedValue
+  searchParams.set("sort", state.sortState.column)
+  searchParams.set("direction", state.sortState.direction)
+
+  const search = searchParams.toString()
+
+  return search ? `${window.location.pathname}?${search}` : window.location.pathname
+}
+
+function getCurrentUrl() {
+  return `${window.location.pathname}${window.location.search}`
+}
+
+function shouldPushHistoryEntry(
+  currentState: ReturnType<typeof getInitialCatalogState>,
+  nextState: ReturnType<typeof getInitialCatalogState>
+) {
+  return (
+    currentState.searchText !== nextState.searchText ||
+    currentState.selectedTags.join(",") !== nextState.selectedTags.join(",")
+  )
 }
