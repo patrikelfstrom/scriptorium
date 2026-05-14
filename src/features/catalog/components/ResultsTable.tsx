@@ -119,7 +119,7 @@ export function ResultsTable({
   }, [loadRowsForRange, totalRowCount, queryStateKey])
 
   if (isLoading && rows.length === 0) {
-    return <TableMessage message="Loading tooling catalog..." />
+    return <TableMessage message="Loading packages..." />
   }
 
   if (errorMessage && rows.length === 0) {
@@ -146,7 +146,7 @@ export function ResultsTable({
         }))
 
   if (renderedRows.length === 0) {
-    return <TableMessage message="Loading tooling catalog..." />
+    return <TableMessage message="Loading packages..." />
   }
 
   return (
