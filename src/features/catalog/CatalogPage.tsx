@@ -2,6 +2,7 @@ import { Moon, Sun } from "lucide-react"
 import { useId, useState } from "react"
 
 import { useTheme } from "@/components/theme-provider"
+import { canonicalizeCatalogTags } from "../../../shared/catalog"
 
 import {
   getActiveToken,
@@ -56,9 +57,10 @@ export function CatalogPage() {
       ? tagSuggestions[activeSuggestionIndex]
       : undefined
   const isDarkMode = getIsDarkMode(theme)
+  const canonicalSelectedTags = canonicalizeCatalogTags(selectedTags)
   const queryStateKey = [
     debouncedSearchText,
-    selectedTags.join(","),
+    canonicalSelectedTags.join(","),
     sortState.column,
     sortState.direction,
   ].join("|")

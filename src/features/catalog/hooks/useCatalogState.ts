@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 
 import {
+  canonicalizeCatalogTags,
   normalizeCatalogSort,
   normalizeCatalogSortDirection,
   normalizeCatalogTags,
@@ -116,21 +117,34 @@ function buildCatalogUrl(state: {
   sortState: SortState
 }) {
   const searchParams = new URLSearchParams()
+  const canonicalTags = canonicalizeCatalogTags(state.selectedTags)
 
   if (state.searchText) {
     searchParams.set("q", state.searchText)
   }
 
-  if (state.selectedTags.length > 0) {
-    searchParams.set("tags", state.selectedTags.join(","))
+  if (canonicalTags.length > 0) {
+    searchParams.set("tags", canonicalTags.join(","))
   }
 
   searchParams.set("sort", state.sortState.column)
   searchParams.set("direction", state.sortState.direction)
 
-  const search = searchParams.toString()
+  const search = formatCatalogLocationSearch(searchParams)
 
-  return search ? `${window.location.pathname}?${search}` : window.location.pathname
+  return search
+    ? `${window.location.pathname}?${search}`
+    : window.location.pathname
+}
+
+function formatCatalogLocationSearch(searchParams: URLSearchParams) {
+  return searchParams
+    .toString()
+    .replace(
+      /(^|&)tags=([^&]*)/,
+      (_match, prefix: string, value: string) =>
+        `${prefix}tags=${value.replaceAll(/%2C/gi, ",")}`
+    )
 }
 
 function getCurrentUrl() {
@@ -141,8 +155,11 @@ function shouldPushHistoryEntry(
   currentState: ReturnType<typeof getInitialCatalogState>,
   nextState: ReturnType<typeof getInitialCatalogState>
 ) {
+  const currentTags = canonicalizeCatalogTags(currentState.selectedTags)
+  const nextTags = canonicalizeCatalogTags(nextState.selectedTags)
+
   return (
     currentState.searchText !== nextState.searchText ||
-    currentState.selectedTags.join(",") !== nextState.selectedTags.join(",")
+    currentTags.join(",") !== nextTags.join(",")
   )
 }
