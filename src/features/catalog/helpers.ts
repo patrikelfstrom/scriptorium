@@ -225,7 +225,7 @@ export function formatStarCount(stars?: number) {
   }
 
   if (stars < 1_000) {
-    return new Intl.NumberFormat("en-US").format(stars)
+    return new Intl.NumberFormat(undefined).format(stars)
   }
 
   if (stars < 1_000_000) {
@@ -233,6 +233,42 @@ export function formatStarCount(stars?: number) {
   }
 
   return `${Math.round(stars / 1_000_000)}m`
+}
+
+export function formatDownloadCount(downloads?: number) {
+  if (downloads == null) {
+    return ""
+  }
+
+  if (downloads < 1_000) {
+    return new Intl.NumberFormat(undefined).format(downloads)
+  }
+
+  if (downloads < 1_000_000) {
+    return `${Math.round(downloads / 1_000)}k`
+  }
+
+  return `${Math.round(downloads / 1_000_000)}m`
+}
+
+export function formatDownloadCountTooltip(
+  downloads?: number,
+  period?: string
+) {
+  if (downloads == null) {
+    return ""
+  }
+
+  const formattedDownloads = new Intl.NumberFormat(undefined).format(downloads)
+
+  switch (period) {
+    case "last-month":
+      return `${formattedDownloads} npm downloads in the last 30 days`
+    case "last-week":
+      return `${formattedDownloads} npm downloads in the last 7 days`
+    default:
+      return `${formattedDownloads} npm downloads`
+  }
 }
 
 export function formatPublishedDate(value?: string) {
@@ -246,7 +282,7 @@ export function formatPublishedDate(value?: string) {
     return ""
   }
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat(undefined, {
     day: "numeric",
     month: "short",
     timeZone: "UTC",

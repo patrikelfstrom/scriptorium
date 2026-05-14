@@ -163,6 +163,8 @@ function getCatalogOrderByClause(
   switch (sort) {
     case "stars":
       return `repository_stars ${normalizedDirection}, package_name COLLATE NOCASE ASC`
+    case "downloads":
+      return `package_downloads ${normalizedDirection}, package_name COLLATE NOCASE ASC`
     case "published":
       return `package_last_published_at ${normalizedDirection}, package_name COLLATE NOCASE ASC`
     case "name":

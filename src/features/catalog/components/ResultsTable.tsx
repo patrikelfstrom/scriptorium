@@ -6,6 +6,8 @@ import { useEffect, useRef } from "react"
 import { Badge } from "@/components/ui/badge"
 
 import {
+  formatDownloadCount,
+  formatDownloadCountTooltip,
   formatStarCount,
   formatPublishedDate,
   getAriaSort,
@@ -48,7 +50,8 @@ export function ResultsTable({
   totalRows: number
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
-  const gridTemplateColumns = "minmax(0,0.85fr) 7rem 8.5rem minmax(18rem,1fr)"
+  const gridTemplateColumns =
+    "minmax(0,0.85fr) 7rem 8.5rem 8.5rem minmax(18rem,1fr)"
   const totalRowCount = Math.max(totalRows, rows.length)
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual's useVirtualizer API is required here.
   const rowVirtualizer = useVirtualizer({
@@ -188,6 +191,18 @@ export function ResultsTable({
             </th>
             <th
               data-slot="table-head"
+              aria-sort={getAriaSort("downloads", sortState)}
+              className="flex h-11 items-center justify-end px-4 text-right text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
+            >
+              <SortButton
+                active={sortState.column === "downloads"}
+                direction={sortState.direction}
+                label="Downloads"
+                onClick={() => toggleSortColumn("downloads", setSortState)}
+              />
+            </th>
+            <th
+              data-slot="table-head"
               aria-sort={getAriaSort("published", sortState)}
               className="flex h-11 items-center justify-start px-4 text-left text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
             >
@@ -273,7 +288,7 @@ function TableMessage({
         <tbody>
           <tr className="border-b border-border/60 bg-background/65 transition-colors">
             <td
-              colSpan={4}
+              colSpan={5}
               className={`px-4 py-10 text-center text-sm ${
                 tone === "destructive"
                   ? "text-destructive"
@@ -307,6 +322,15 @@ function LoadingRowCells() {
           aria-hidden="true"
         />
       </td>
+      <td
+        data-slot="table-cell"
+        className="px-4 py-4 text-right align-middle text-muted-foreground tabular-nums"
+      >
+        <div
+          className="ml-auto h-4 w-16 rounded bg-muted/40"
+          aria-hidden="true"
+        />
+      </td>
       <td data-slot="table-cell" className="px-4 py-4 align-middle">
         <div className="h-4 w-24 rounded bg-muted/40" aria-hidden="true" />
       </td>
@@ -333,6 +357,10 @@ function LoadedRowCells({
   setSelectedTags: Dispatch<SetStateAction<string[]>>
 }) {
   const nameHref = row.packageUrl
+  const downloadsTooltip = formatDownloadCountTooltip(
+    row.packageDownloads,
+    row.packageDownloadsPeriod
+  )
 
   return (
     <>
@@ -402,6 +430,14 @@ function LoadedRowCells({
         className="px-4 py-4 text-right align-middle text-muted-foreground tabular-nums"
       >
         {formatStarCount(row.repositoryStars)}
+      </td>
+      <td
+        data-slot="table-cell"
+        className="px-4 py-4 text-right align-middle text-muted-foreground tabular-nums"
+      >
+        <span aria-label={downloadsTooltip} title={downloadsTooltip}>
+          {formatDownloadCount(row.packageDownloads)}
+        </span>
       </td>
       <td
         data-slot="table-cell"
@@ -481,7 +517,9 @@ function MetadataLink({
       title={title}
     >
       {icon ? <span className="shrink-0">{icon}</span> : null}
-      <span className="hidden min-w-0 truncate min-[1200px]:block">{label}</span>
+      <span className="hidden min-w-0 truncate min-[1200px]:block">
+        {label}
+      </span>
     </a>
   )
 }

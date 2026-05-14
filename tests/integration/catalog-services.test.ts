@@ -58,7 +58,7 @@ describe("catalog services", () => {
     }
   })
 
-  it("sorts catalog rows by stars and published date", async () => {
+  it("sorts catalog rows by stars, downloads, and published date", async () => {
     const database = await createTestCatalogDatabase()
 
     try {
@@ -66,19 +66,29 @@ describe("catalog services", () => {
         packageName: "react",
         packageLastPublishedAt: "2026-01-01T00:00:00.000Z",
         repositoryStars: 200_000,
+        packageDownloads: 4_000_000,
         packageTags: ["react", "ui"],
       })
       await seedCatalogPackage(database.client, {
         packageName: "astro",
         packageLastPublishedAt: "2025-11-20T00:00:00.000Z",
         repositoryStars: 45_000,
+        packageDownloads: 2_000_000,
         packageTags: ["framework", "ssg"],
       })
       await seedCatalogPackage(database.client, {
         packageName: "vue",
         packageLastPublishedAt: "2025-12-15T00:00:00.000Z",
         repositoryStars: 150_000,
+        packageDownloads: 3_000_000,
         packageTags: ["ui", "vue"],
+      })
+      await seedCatalogPackage(database.client, {
+        packageName: "angular",
+        packageLastPublishedAt: "2025-10-10T00:00:00.000Z",
+        repositoryStars: 90_000,
+        packageDownloads: 3_000_000,
+        packageTags: ["ui", "framework"],
       })
 
       const starsResult = await searchCatalog(
@@ -86,6 +96,15 @@ describe("catalog services", () => {
         parseCatalogSearchParams(
           new URLSearchParams({
             sort: "stars",
+            direction: "desc",
+          })
+        )
+      )
+      const downloadsResult = await searchCatalog(
+        database.client,
+        parseCatalogSearchParams(
+          new URLSearchParams({
+            sort: "downloads",
             direction: "desc",
           })
         )
@@ -103,12 +122,20 @@ describe("catalog services", () => {
       expect(starsResult.items.map((item) => item.packageName)).toEqual([
         "react",
         "vue",
+        "angular",
+        "astro",
+      ])
+      expect(downloadsResult.items.map((item) => item.packageName)).toEqual([
+        "react",
+        "angular",
+        "vue",
         "astro",
       ])
       expect(publishedResult.items.map((item) => item.packageName)).toEqual([
         "react",
         "vue",
         "astro",
+        "angular",
       ])
     } finally {
       await database.cleanup()
