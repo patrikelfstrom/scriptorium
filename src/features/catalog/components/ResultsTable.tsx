@@ -50,6 +50,9 @@ export function ResultsTable({
   totalRows: number
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const loadRowsForRangeRef = useRef(loadRowsForRange)
+  const hasMountedRef = useRef(false)
+  const pendingQueryResetRef = useRef(false)
   const gridTemplateColumns =
     "minmax(0,0.85fr) 7rem 8.5rem 8.5rem minmax(18rem,1fr)"
   const totalRowCount = Math.max(totalRows, rows.length)
@@ -68,23 +71,55 @@ export function ResultsTable({
     (_, index) => index
   )
   const loadRange = getLoadRangeForVirtualRows(virtualRows, totalRowCount)
+  const loadRangeStartIndex = loadRange?.startIndex ?? null
+  const loadRangeEndIndex = loadRange?.endIndex ?? null
+  const hasRows = totalRowCount > 0
+  const topLoadEndIndex = getTopLoadEndIndex(totalRowCount)
 
   useEffect(() => {
+    loadRowsForRangeRef.current = loadRowsForRange
+  }, [loadRowsForRange])
+
+  useEffect(() => {
+    if (hasMountedRef.current) {
+      pendingQueryResetRef.current = true
+    } else {
+      hasMountedRef.current = true
+    }
+
     scrollRef.current?.scrollTo({ top: 0 })
   }, [queryStateKey])
 
   useEffect(() => {
-    if (totalRowCount === 0) {
+    if (!hasRows) {
       return
     }
 
-    if (!loadRange) {
-      loadRowsForRange(0, Math.min(totalRowCount - 1, LOAD_AHEAD_ROWS))
+    if (pendingQueryResetRef.current) {
+      pendingQueryResetRef.current = false
+      loadRowsForRangeRef.current(0, topLoadEndIndex)
       return
     }
 
-    loadRowsForRange(loadRange.startIndex, loadRange.endIndex)
-  }, [loadRange, loadRowsForRange, queryStateKey, totalRowCount])
+    if (loadRangeStartIndex === null || loadRangeEndIndex === null) {
+      loadRowsForRangeRef.current(0, topLoadEndIndex)
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      loadRowsForRangeRef.current(loadRangeStartIndex, loadRangeEndIndex)
+    }, RANGE_LOAD_DEBOUNCE_MS)
+
+    return () => {
+      clearTimeout(timeoutId)
+    }
+  }, [
+    hasRows,
+    loadRangeEndIndex,
+    loadRangeStartIndex,
+    queryStateKey,
+    topLoadEndIndex,
+  ])
 
   if (isLoading && rows.length === 0) {
     return <TableMessage message="Loading packages..." />
@@ -241,6 +276,7 @@ export function ResultsTable({
 const LOAD_AHEAD_ROWS = 12
 const ESTIMATED_ROW_HEIGHT = 68
 const GITHUB_REPOSITORY_LABEL_MAX_LENGTH = 48
+const RANGE_LOAD_DEBOUNCE_MS = 120
 
 function getLoadRangeForVirtualRows(
   virtualRows: Array<{ index: number }>,
@@ -260,6 +296,10 @@ function getLoadRangeForVirtualRows(
     endIndex,
     startIndex,
   }
+}
+
+function getTopLoadEndIndex(totalRowCount: number) {
+  return Math.max(0, Math.min(totalRowCount - 1, LOAD_AHEAD_ROWS))
 }
 
 function TableMessage({
