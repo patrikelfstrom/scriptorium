@@ -1,4 +1,5 @@
 import {
+  canonicalizeCatalogTags,
   decodeCatalogCursor,
   encodeCatalogCursor,
   parseCatalogSearchParams,
@@ -50,7 +51,7 @@ describe("catalog core helpers", () => {
 
     expect(params).toEqual({
       query: "React Query",
-      tags: ["ui", "frontend"],
+      tags: ["frontend", "ui"],
       limit: 1000,
       cursor: encodeCatalogCursor(40),
       sort: "name",
@@ -65,6 +66,12 @@ describe("catalog core helpers", () => {
       "query",
       "ui",
     ])
+  })
+
+  it("canonicalizes tags to a stable lowercase order", () => {
+    expect(
+      canonicalizeCatalogTags(["UI", "frontend", " ui ", "Frontend"])
+    ).toEqual(["frontend", "ui"])
   })
 
   it("normalizes tags and labels", () => {

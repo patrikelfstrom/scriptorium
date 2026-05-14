@@ -34,6 +34,12 @@ describe("worker routes", () => {
 
       expect(searchResponse.status).toBe(200)
       expect(tagsResponse.status).toBe(200)
+      expect(searchResponse.headers.get("Cache-Control")).toBe(
+        "public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400"
+      )
+      expect(tagsResponse.headers.get("Cache-Control")).toBe(
+        "public, max-age=86400, s-maxage=86400, stale-while-revalidate=86400"
+      )
 
       const searchPayload = await searchResponse.json()
       const tagsPayload = await tagsResponse.json()

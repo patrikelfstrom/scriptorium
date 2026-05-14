@@ -1,4 +1,5 @@
 import {
+  canonicalizeCatalogTags,
   parseCatalogSearchParams,
   parseCatalogTagListParams,
 } from "../shared/catalog"
@@ -23,10 +24,10 @@ const corsHeaders = {
 }
 
 const TAG_CACHE_CONTROL =
-  "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
+  "public, max-age=86400, s-maxage=86400, stale-while-revalidate=86400"
 const SEARCH_CACHE_CONTROL =
-  "public, max-age=30, s-maxage=30, stale-while-revalidate=120"
-const TAG_MEMORY_CACHE_TTL_MS = 5 * 60 * 1000
+  "public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400"
+const TAG_MEMORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 const schemaReadyPromises = new Map<string, Promise<void>>()
 const tagPayloadCache = new Map<
@@ -70,22 +71,61 @@ export default {
 }
 
 async function handleSearchRequest(url: URL, env: WorkerEnv) {
+  const params = parseCatalogSearchParams(url.searchParams)
+  const request = createCanonicalSearchRequest(url, params)
+  const edgeCachedResponse = await getCachedEdgeResponse(request)
+
+  if (edgeCachedResponse) {
+    return edgeCachedResponse
+  }
+
   await ensureCatalogSchemaReady(env)
 
   const client = createCatalogDatabaseClient(env)
 
   try {
-    const payload = await searchCatalog(
-      client,
-      parseCatalogSearchParams(url.searchParams)
-    )
+    const payload = await searchCatalog(client, params)
 
-    return jsonResponse(payload, 200, {
+    const response = jsonResponse(payload, 200, {
       "Cache-Control": SEARCH_CACHE_CONTROL,
     })
+
+    await cacheEdgeResponse(request, response)
+
+    return response
   } finally {
     client.close?.()
   }
+}
+
+function createCanonicalSearchRequest(
+  url: URL,
+  params: ReturnType<typeof parseCatalogSearchParams>
+) {
+  const requestUrl = new URL(url.toString())
+  const searchParams = new URLSearchParams({
+    limit: String(params.limit),
+    sort: params.sort,
+    direction: params.direction,
+  })
+
+  if (params.query) {
+    searchParams.set("q", params.query)
+  }
+
+  const normalizedTags = canonicalizeCatalogTags(params.tags)
+
+  if (normalizedTags.length > 0) {
+    searchParams.set("tags", normalizedTags.join(","))
+  }
+
+  if (params.cursor) {
+    searchParams.set("cursor", params.cursor)
+  }
+
+  requestUrl.search = searchParams.toString()
+
+  return new Request(requestUrl.toString())
 }
 
 async function handleTagsRequest(request: Request, _url: URL, env: WorkerEnv) {

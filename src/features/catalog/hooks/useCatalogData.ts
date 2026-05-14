@@ -3,6 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query"
 
 import {
   DEFAULT_CATALOG_SEARCH_LIMIT,
+  canonicalizeCatalogTags,
   type CatalogSearchResponse,
 } from "../../../../shared/catalog"
 
@@ -20,9 +21,10 @@ export function useCatalogData(input: {
   selectedTags: string[]
   sortState: SortState
 }) {
+  const normalizedSelectedTags = canonicalizeCatalogTags(input.selectedTags)
   const searchKey = [
     input.query,
-    input.selectedTags.join(","),
+    normalizedSelectedTags.join(","),
     input.sortState.column,
     input.sortState.direction,
   ].join("|")
@@ -38,7 +40,7 @@ export function useCatalogData(input: {
       queryKey: [
         "catalog-search",
         input.query,
-        input.selectedTags,
+        normalizedSelectedTags,
         input.sortState.column,
         input.sortState.direction,
         offset,
@@ -48,7 +50,7 @@ export function useCatalogData(input: {
           {
             cursor: getCatalogPageCursorForOffset(offset),
             query: input.query,
-            tags: input.selectedTags,
+            tags: normalizedSelectedTags,
             sort: input.sortState.column,
             direction: input.sortState.direction,
           },
@@ -56,13 +58,13 @@ export function useCatalogData(input: {
         ),
       placeholderData: (previousData: CatalogSearchResponse | undefined) =>
         previousData,
-      staleTime: 60_000,
+      staleTime: 60 * 60_000,
     })),
   })
   const tagsQuery = useQuery({
     queryKey: ["catalog-tags"],
     queryFn: ({ signal }) => fetchCatalogTags(signal),
-    staleTime: 10 * 60_000,
+    staleTime: 12 * 60 * 60_000,
   })
   const rowsByIndex = new Map<
     number,

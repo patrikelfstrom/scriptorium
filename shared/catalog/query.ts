@@ -31,14 +31,13 @@ export function normalizeCatalogTags(rawTags?: string | null) {
     return []
   }
 
+  return canonicalizeCatalogTags(rawTags.split(","))
+}
+
+export function canonicalizeCatalogTags(tags: string[]) {
   return Array.from(
-    new Set(
-      rawTags
-        .split(",")
-        .map((value) => normalizeCatalogText(value))
-        .filter(Boolean)
-    )
-  )
+    new Set(tags.map((value) => normalizeCatalogText(value)).filter(Boolean))
+  ).sort((left, right) => left.localeCompare(right))
 }
 
 export function clampCatalogLimit(value?: string | null) {

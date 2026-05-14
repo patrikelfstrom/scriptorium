@@ -1,5 +1,6 @@
 import {
   DEFAULT_CATALOG_SEARCH_LIMIT,
+  canonicalizeCatalogTags,
   type CatalogSearchResponse,
   type CatalogSortColumn,
   type CatalogSortDirection,
@@ -50,7 +51,7 @@ export async function fetchCatalogSearchPage(
   }
 
   if (input.tags.length > 0) {
-    searchParams.set("tags", input.tags.join(","))
+    searchParams.set("tags", canonicalizeCatalogTags(input.tags).join(","))
   }
 
   if (input.cursor) {
