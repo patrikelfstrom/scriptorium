@@ -14,6 +14,11 @@ const PUBLISHED_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
   timeZone: "UTC",
   year: "numeric",
 })
+const PUBLISHED_MONTH_YEAR_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  timeZone: "UTC",
+  year: "numeric",
+})
 
 export function toggleSortColumn(
   column: SortState["column"],
@@ -298,6 +303,31 @@ export function formatPublishedDate(value?: string) {
   }
 
   return PUBLISHED_DATE_FORMATTER.format(parsed)
+}
+
+export function formatPublishedMonthYear(value?: string) {
+  if (!value) {
+    return ""
+  }
+
+  const parsed = new Date(value)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return ""
+  }
+
+  const month = PUBLISHED_MONTH_YEAR_FORMATTER.formatToParts(parsed).find(
+    (part) => part.type === "month"
+  )?.value
+  const year = PUBLISHED_MONTH_YEAR_FORMATTER.formatToParts(parsed).find(
+    (part) => part.type === "year"
+  )?.value
+
+  if (!month || !year) {
+    return ""
+  }
+
+  return `${month}, ${year}`
 }
 
 function scoreSuggestion(tag: string, token: string) {

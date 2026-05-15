@@ -68,13 +68,22 @@ export function CatalogPage() {
   return (
     <main className="h-svh">
       <section className="flex h-full flex-col overflow-hidden bg-background/90 backdrop-blur">
-        <div className="relative z-30 border-b border-border/60 bg-muted/30 px-4 py-4 sm:px-6">
+        <div className="relative z-30 border-b border-border/60 bg-muted/30 px-3 py-3 sm:px-6 sm:py-4">
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <h1 className="text-lg font-semibold tracking-[0.2em] text-foreground uppercase">
+            <div className="flex items-center justify-between gap-3">
+              <h1 className="text-base font-semibold tracking-[0.18em] text-foreground uppercase sm:text-lg sm:tracking-[0.2em]">
                 scriptorium
               </h1>
               <div className="ml-auto flex items-center gap-2">
+                <a
+                  href="https://github.com/patrikelfstrom/scriptorium"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-xl border border-border/70 bg-background/85 p-2.5 text-foreground shadow-sm transition-colors outline-none hover:bg-background focus-visible:ring-2 focus-visible:ring-primary/20"
+                  aria-label="Open scriptorium on GitHub"
+                >
+                  <GitHubIcon className="size-4" />
+                </a>
                 <button
                   type="button"
                   onClick={() => setTheme(isDarkMode ? "light" : "dark")}
@@ -86,20 +95,13 @@ export function CatalogPage() {
                   ) : (
                     <Moon className="size-4" />
                   )}
-                  <span>{isDarkMode ? "Light" : "Dark"}</span>
+                  <span className="max-[420px]:hidden">
+                    {isDarkMode ? "Light" : "Dark"}
+                  </span>
                 </button>
-                <a
-                  href="https://github.com/patrikelfstrom/scriptorium"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center justify-center rounded-xl border border-border/70 bg-background/85 p-2.5 text-foreground shadow-sm transition-colors outline-none hover:bg-background focus-visible:ring-2 focus-visible:ring-primary/20"
-                  aria-label="Open scriptorium on GitHub"
-                >
-                  <GitHubIcon className="size-4" />
-                </a>
               </div>
             </div>
-            <div className="flex items-end gap-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-4">
               <SearchFilter
                 activeSuggestion={activeSuggestion}
                 activeSuggestionIndex={activeSuggestionIndex}
@@ -112,7 +114,7 @@ export function CatalogPage() {
                 setSelectedTags={setSelectedTags}
                 tagSuggestions={tagSuggestions}
               />
-              <div className="ml-auto flex shrink-0 gap-2 text-[0.65rem] tracking-[0.18em] text-muted-foreground uppercase">
+              <div className="hidden shrink-0 flex-wrap gap-x-3 gap-y-1 text-[0.65rem] tracking-[0.16em] text-muted-foreground uppercase sm:ml-auto sm:flex sm:justify-end sm:tracking-[0.18em]">
                 <span>{isLoading ? "Loading" : `${rows.length} shown`}</span>
                 <span>{totalRows} total</span>
               </div>

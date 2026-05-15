@@ -68,9 +68,9 @@ export function SearchFilter({
   }, [isSuggestionsOpen, setActiveSuggestionIndex])
 
   return (
-    <div className="max-w-2xl min-w-0 flex-1">
+    <div className="w-full max-w-2xl min-w-0 flex-1">
       <div className="relative">
-        <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-background/85 px-3 py-2 shadow-sm transition-[border-color,box-shadow] focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10">
+        <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-background/85 px-2.5 py-2 shadow-sm transition-[border-color,box-shadow] focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 sm:px-3">
           <Search className="size-4 text-muted-foreground" />
           {selectedTags.map((tag) => (
             <button
@@ -107,8 +107,8 @@ export function SearchFilter({
                 selectedTags,
               })
             }
-            className="min-w-36 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/80"
-            placeholder="Type to search. Press Tab to browse tags, then Space to add one."
+            className="min-w-24 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/80 sm:min-w-36 sm:text-sm"
+            placeholder="Search packages or add tags"
             aria-autocomplete="list"
             aria-controls={`${inputId}-suggestions`}
             aria-expanded={isSuggestionsOpen && tagSuggestions.length > 0}
@@ -147,13 +147,12 @@ export function SearchFilter({
                       : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                   }`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <Badge style={getTagColorStyle(tag, false, isDarkMode)}>
                       {tag}
                     </Badge>
-                    <span>Tag suggestion</span>
                   </div>
-                  <span className="text-[0.65rem] tracking-[0.18em] uppercase">
+                  <span className="hidden text-[0.65rem] tracking-[0.18em] uppercase sm:inline">
                     {index === 0 ? "Top match" : `Match ${index + 1}`}
                   </span>
                 </button>

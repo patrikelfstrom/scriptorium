@@ -1,5 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Link as LinkIcon } from "lucide-react"
+import {
+  ArrowDownToLine,
+  CalendarDays,
+  Link as LinkIcon,
+  Star,
+} from "lucide-react"
 import type { Dispatch, ReactNode, SetStateAction } from "react"
 import { useEffect, useRef } from "react"
 
@@ -10,6 +15,7 @@ import {
   formatDownloadCountTooltip,
   formatStarCount,
   formatPublishedDate,
+  formatPublishedMonthYear,
   getAriaSort,
   getTagColorStyle,
   normalizeValue,
@@ -53,8 +59,8 @@ export function ResultsTable({
   const loadRowsForRangeRef = useRef(loadRowsForRange)
   const hasMountedRef = useRef(false)
   const pendingQueryResetRef = useRef(false)
-  const gridTemplateColumns =
-    "minmax(0,0.85fr) 7rem 8.5rem 8.5rem minmax(18rem,1fr)"
+  const gridTemplateColumnsClass =
+    "grid-cols-[minmax(16rem,1.15fr)_4rem_5rem_5.75rem_minmax(11rem,0.85fr)] sm:grid-cols-[minmax(14rem,0.9fr)_6rem_7.5rem_8rem_minmax(15rem,1fr)]"
   const totalRowCount = Math.max(totalRows, rows.length)
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual's useVirtualizer API is required here.
   const rowVirtualizer = useVirtualizer({
@@ -156,25 +162,28 @@ export function ResultsTable({
     <div
       ref={scrollRef}
       data-slot="table-container"
-      className="relative min-h-0 flex-1 overflow-auto"
+      className="relative min-h-0 flex-1 overflow-auto overscroll-x-contain"
     >
-      <table data-slot="table" className="grid w-full caption-bottom text-sm">
+      <table
+        data-slot="table"
+        className="grid w-full min-w-[43rem] caption-bottom text-sm sm:min-w-[54rem]"
+      >
         <thead
           data-slot="table-header"
           className="sticky top-0 z-10 grid bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 [&_tr]:border-b [&_tr]:border-border/60"
         >
           <tr
             data-slot="table-row"
-            className="grid border-b border-border/60 transition-colors hover:bg-transparent"
-            style={{ gridTemplateColumns }}
+            className={`${gridTemplateColumnsClass} grid border-b border-border/60 transition-colors hover:bg-transparent`}
           >
             <th
               data-slot="table-head"
               aria-sort={getAriaSort("name", sortState)}
-              className="flex h-11 items-center justify-start px-4 text-left text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
+              className="flex h-11 items-center justify-start px-3 text-left text-[0.65rem] font-semibold tracking-[0.2em] text-muted-foreground uppercase sm:px-4 sm:text-[0.7rem] sm:tracking-[0.24em]"
             >
               <SortButton
                 active={sortState.column === "name"}
+                ariaLabel="Sort by name"
                 direction={sortState.direction}
                 label="Name"
                 onClick={() => toggleSortColumn("name", setSortState)}
@@ -183,42 +192,66 @@ export function ResultsTable({
             <th
               data-slot="table-head"
               aria-sort={getAriaSort("stars", sortState)}
-              className="flex h-11 items-center justify-end px-4 text-right text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
+              className="flex h-11 items-center justify-end px-3 text-right text-[0.65rem] font-semibold tracking-[0.2em] text-muted-foreground uppercase sm:px-4 sm:text-[0.7rem] sm:tracking-[0.24em]"
             >
               <SortButton
                 active={sortState.column === "stars"}
+                ariaLabel="Sort by stars"
                 direction={sortState.direction}
-                label="Stars"
+                label={
+                  <>
+                    <Star className="size-3.5 sm:hidden" aria-hidden="true" />
+                    <span className="hidden sm:inline">Stars</span>
+                  </>
+                }
                 onClick={() => toggleSortColumn("stars", setSortState)}
               />
             </th>
             <th
               data-slot="table-head"
               aria-sort={getAriaSort("downloads", sortState)}
-              className="flex h-11 items-center justify-end px-4 text-right text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
+              className="flex h-11 items-center justify-end px-3 text-right text-[0.65rem] font-semibold tracking-[0.2em] text-muted-foreground uppercase sm:px-4 sm:text-[0.7rem] sm:tracking-[0.24em]"
             >
               <SortButton
                 active={sortState.column === "downloads"}
+                ariaLabel="Sort by downloads"
                 direction={sortState.direction}
-                label="Downloads"
+                label={
+                  <>
+                    <ArrowDownToLine
+                      className="size-3.5 sm:hidden"
+                      aria-hidden="true"
+                    />
+                    <span className="hidden sm:inline">Downloads</span>
+                  </>
+                }
                 onClick={() => toggleSortColumn("downloads", setSortState)}
               />
             </th>
             <th
               data-slot="table-head"
               aria-sort={getAriaSort("published", sortState)}
-              className="flex h-11 items-center justify-start px-4 text-left text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
+              className="flex h-11 items-center justify-start px-3 text-left text-[0.65rem] font-semibold tracking-[0.2em] text-muted-foreground uppercase sm:px-4 sm:text-[0.7rem] sm:tracking-[0.24em]"
             >
               <SortButton
                 active={sortState.column === "published"}
+                ariaLabel="Sort by published date"
                 direction={sortState.direction}
-                label="Published"
+                label={
+                  <>
+                    <CalendarDays
+                      className="size-3.5 sm:hidden"
+                      aria-hidden="true"
+                    />
+                    <span className="hidden sm:inline">Published</span>
+                  </>
+                }
                 onClick={() => toggleSortColumn("published", setSortState)}
               />
             </th>
             <th
               data-slot="table-head"
-              className="flex h-11 items-center justify-start px-4 text-left text-[0.7rem] font-semibold tracking-[0.24em] text-muted-foreground uppercase"
+              className="flex h-11 items-center justify-start px-3 text-left text-[0.65rem] font-semibold tracking-[0.2em] text-muted-foreground uppercase sm:px-4 sm:text-[0.7rem] sm:tracking-[0.24em]"
             >
               <span>Tags</span>
             </th>
@@ -238,9 +271,8 @@ export function ResultsTable({
                 data-slot="table-row"
                 data-index={index}
                 ref={loadedRow ? rowVirtualizer.measureElement : undefined}
-                className="absolute grid w-full border-b border-border/60 bg-background/65 transition-colors odd:bg-muted/20 hover:bg-muted/30"
+                className={`${gridTemplateColumnsClass} absolute grid w-full border-b border-border/60 bg-background/65 transition-colors odd:bg-muted/20 hover:bg-muted/30`}
                 style={{
-                  gridTemplateColumns,
                   transform: `translateY(${start}px)`,
                 }}
               >
@@ -274,7 +306,7 @@ export function ResultsTable({
 }
 
 const LOAD_AHEAD_ROWS = 12
-const ESTIMATED_ROW_HEIGHT = 68
+const ESTIMATED_ROW_HEIGHT = 92
 const GITHUB_REPOSITORY_LABEL_MAX_LENGTH = 48
 const RANGE_LOAD_DEBOUNCE_MS = 120
 
@@ -334,7 +366,7 @@ function TableMessage({
 function LoadingRowCells() {
   return (
     <>
-      <td data-slot="table-cell" className="w-0 p-4 align-middle">
+      <td data-slot="table-cell" className="w-0 p-3 align-middle sm:p-4">
         <div className="space-y-2" aria-hidden="true">
           <div className="h-4 w-48 rounded bg-muted/60" />
           <div className="h-3 w-32 rounded bg-muted/40" />
@@ -342,7 +374,7 @@ function LoadingRowCells() {
       </td>
       <td
         data-slot="table-cell"
-        className="p-4 text-right align-middle text-muted-foreground tabular-nums"
+        className="p-3 text-right align-middle text-muted-foreground tabular-nums sm:p-4"
       >
         <div
           className="ml-auto h-4 w-12 rounded bg-muted/50"
@@ -351,18 +383,18 @@ function LoadingRowCells() {
       </td>
       <td
         data-slot="table-cell"
-        className="p-4 text-right align-middle text-muted-foreground tabular-nums"
+        className="p-3 text-right align-middle text-muted-foreground tabular-nums sm:p-4"
       >
         <div
           className="ml-auto h-4 w-16 rounded bg-muted/40"
           aria-hidden="true"
         />
       </td>
-      <td data-slot="table-cell" className="p-4 align-middle">
+      <td data-slot="table-cell" className="p-3 align-middle sm:p-4">
         <div className="h-4 w-24 rounded bg-muted/40" aria-hidden="true" />
       </td>
-      <td data-slot="table-cell" className="p-4 align-middle">
-        <div className="flex flex-wrap gap-2" aria-hidden="true">
+      <td data-slot="table-cell" className="p-3 align-middle sm:p-4">
+        <div className="flex flex-wrap gap-1.5 sm:gap-2" aria-hidden="true">
           <div className="h-6 w-16 rounded-full bg-muted/50" />
           <div className="h-6 w-20 rounded-full bg-muted/40" />
           <div className="h-6 w-14 rounded-full bg-muted/30" />
@@ -388,18 +420,22 @@ function LoadedRowCells({
     row.packageDownloads,
     row.packageDownloadsPeriod
   )
+  const publishedDate = formatPublishedDate(row.packageLastPublishedAt)
+  const publishedMonthYear = formatPublishedMonthYear(
+    row.packageLastPublishedAt
+  )
 
   return (
     <>
       <td
         data-slot="table-cell"
-        className="min-w-0 p-4 align-middle font-medium text-foreground"
+        className="min-w-0 p-3 align-middle font-medium text-foreground sm:p-4"
       >
-        <div className="flex min-w-0 items-center gap-4">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
           <div className="min-w-0 flex-1">
             {nameHref ? (
               <a
-                className="block min-w-0 truncate transition-colors hover:text-primary"
+                className="block min-w-0 leading-tight break-words whitespace-normal transition-colors hover:text-primary sm:truncate"
                 href={nameHref}
                 target="_blank"
                 rel="noreferrer"
@@ -407,11 +443,13 @@ function LoadedRowCells({
                 {row.packageName}
               </a>
             ) : (
-              <span className="block min-w-0 truncate">{row.packageName}</span>
+              <span className="block min-w-0 leading-tight break-words whitespace-normal sm:truncate">
+                {row.packageName}
+              </span>
             )}
           </div>
           {row.repositoryUrl || row.packageUrl || row.homepageUrl ? (
-            <div className="ml-auto flex shrink-0 items-center gap-4 text-xs text-muted-foreground min-[1200px]:max-w-[45%] min-[1200px]:min-w-0 min-[1200px]:shrink">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.7rem] text-muted-foreground min-[1200px]:max-w-[45%] min-[1200px]:min-w-0 min-[1200px]:shrink sm:ml-auto sm:shrink-0 sm:flex-nowrap sm:gap-4 sm:text-xs">
               {row.repositoryUrl ? (
                 <MetadataLink
                   href={row.repositoryUrl}
@@ -419,9 +457,10 @@ function LoadedRowCells({
                     row.repositoryLabel ?? "repository",
                     GITHUB_REPOSITORY_LABEL_MAX_LENGTH
                   )}
+                  labelClassName="hidden min-[1200px]:block min-w-0 truncate"
                   title={row.repositoryLabel ?? "repository"}
                   ariaLabel={row.repositoryLabel ?? "repository"}
-                  className="shrink-0 min-[1200px]:min-w-0 min-[1200px]:flex-1 min-[1200px]:basis-0"
+                  className="min-w-0 min-[1200px]:min-w-0 min-[1200px]:flex-1 min-[1200px]:basis-0 sm:shrink-0"
                   icon={
                     isGitHubRepositoryUrl(row.repositoryUrl) ? (
                       <GitHubIcon className="size-3.5" />
@@ -458,13 +497,13 @@ function LoadedRowCells({
       </td>
       <td
         data-slot="table-cell"
-        className="p-4 text-right align-middle text-muted-foreground tabular-nums"
+        className="p-3 text-right align-middle text-muted-foreground tabular-nums sm:p-4"
       >
         {formatStarCount(row.repositoryStars)}
       </td>
       <td
         data-slot="table-cell"
-        className="p-4 text-right align-middle text-muted-foreground tabular-nums"
+        className="p-3 text-right align-middle text-muted-foreground tabular-nums sm:p-4"
       >
         <span aria-label={downloadsTooltip} title={downloadsTooltip}>
           {formatDownloadCount(row.packageDownloads)}
@@ -472,12 +511,23 @@ function LoadedRowCells({
       </td>
       <td
         data-slot="table-cell"
-        className="p-4 align-middle text-muted-foreground tabular-nums"
+        className="p-3 align-middle text-muted-foreground tabular-nums sm:p-4"
       >
-        {formatPublishedDate(row.packageLastPublishedAt) || "—"}
+        {publishedDate || publishedMonthYear ? (
+          <>
+            <span className="whitespace-nowrap sm:hidden">
+              {publishedMonthYear}
+            </span>
+            <span className="hidden whitespace-nowrap sm:inline">
+              {publishedDate}
+            </span>
+          </>
+        ) : (
+          "—"
+        )}
       </td>
-      <td data-slot="table-cell" className="p-4 align-middle">
-        <div className="flex flex-wrap gap-2">
+      <td data-slot="table-cell" className="p-3 align-middle sm:p-4">
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
           {row.tags.map((tag) => {
             const isSelected = selectedTagSet.has(normalizeValue(tag))
 
@@ -543,7 +593,7 @@ function MetadataLink({
   return (
     <a
       aria-label={ariaLabel}
-      className={`inline-flex min-w-0 items-center gap-1.5 underline decoration-border/80 underline-offset-4 transition-colors hover:text-foreground ${
+      className={`inline-flex min-w-0 items-center gap-1 underline decoration-border/80 underline-offset-4 transition-colors hover:text-foreground sm:gap-1.5 ${
         monospace ? "font-mono" : ""
       } ${className ?? ""}`}
       href={href}
