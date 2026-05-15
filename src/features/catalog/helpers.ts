@@ -7,6 +7,14 @@ import type {
 
 import type { SortState } from "./types"
 
+const INTEGER_FORMATTER = new Intl.NumberFormat(undefined)
+const PUBLISHED_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  timeZone: "UTC",
+  year: "numeric",
+})
+
 export function toggleSortColumn(
   column: SortState["column"],
   setSortState: Dispatch<SetStateAction<SortState>>
@@ -68,14 +76,21 @@ export function getTagSuggestions(
   }
 
   const selected = new Set(selectedTags.map(normalizeValue))
+  const scoredSuggestions: Array<{ score: number; tag: string }> = []
 
-  return allTags
-    .filter((tag) => !selected.has(tag))
-    .map((tag) => ({
-      tag,
-      score: scoreSuggestion(tag, activeToken),
-    }))
-    .filter((entry) => entry.score > 0)
+  for (const tag of allTags) {
+    if (selected.has(tag)) {
+      continue
+    }
+
+    const score = scoreSuggestion(tag, activeToken)
+
+    if (score > 0) {
+      scoredSuggestions.push({ score, tag })
+    }
+  }
+
+  return scoredSuggestions
     .sort(
       (left, right) =>
         right.score - left.score || left.tag.localeCompare(right.tag)
@@ -225,7 +240,7 @@ export function formatStarCount(stars?: number) {
   }
 
   if (stars < 1_000) {
-    return new Intl.NumberFormat(undefined).format(stars)
+    return INTEGER_FORMATTER.format(stars)
   }
 
   if (stars < 1_000_000) {
@@ -241,7 +256,7 @@ export function formatDownloadCount(downloads?: number) {
   }
 
   if (downloads < 1_000) {
-    return new Intl.NumberFormat(undefined).format(downloads)
+    return INTEGER_FORMATTER.format(downloads)
   }
 
   if (downloads < 1_000_000) {
@@ -259,7 +274,7 @@ export function formatDownloadCountTooltip(
     return ""
   }
 
-  const formattedDownloads = new Intl.NumberFormat(undefined).format(downloads)
+  const formattedDownloads = INTEGER_FORMATTER.format(downloads)
 
   switch (period) {
     case "last-month":
@@ -282,12 +297,7 @@ export function formatPublishedDate(value?: string) {
     return ""
   }
 
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-    year: "numeric",
-  }).format(parsed)
+  return PUBLISHED_DATE_FORMATTER.format(parsed)
 }
 
 function scoreSuggestion(tag: string, token: string) {

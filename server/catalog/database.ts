@@ -8,7 +8,7 @@ export type CatalogDatabaseBindings = {
   TURSO_AUTH_TOKEN?: string
 }
 
-export function getCatalogDatabaseUrl(bindings: CatalogDatabaseBindings) {
+function getCatalogDatabaseUrl(bindings: CatalogDatabaseBindings) {
   if (bindings.TURSO_DATABASE_URL) {
     return bindings.TURSO_DATABASE_URL
   }

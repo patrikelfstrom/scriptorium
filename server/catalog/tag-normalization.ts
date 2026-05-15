@@ -48,8 +48,7 @@ export function normalizeTagValue(value: string) {
 export function createTagLabel(tagId: string) {
   return tagId
     .split("-")
-    .filter(Boolean)
-    .map((segment) => segment.toLowerCase())
+    .flatMap((segment) => (segment ? [segment.toLowerCase()] : []))
     .join(" ")
 }
 

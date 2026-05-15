@@ -19,9 +19,10 @@ export async function searchCatalog(
   const queryTerms = tokenizeCatalogQuery(params.query)
   const normalizedTags = Array.from(
     new Set(
-      params.tags
-        .map((tag) => normalizeTagValue(tag))
-        .filter((tag): tag is string => Boolean(tag))
+      params.tags.flatMap((tag) => {
+        const normalizedTag = normalizeTagValue(tag)
+        return normalizedTag ? [normalizedTag] : []
+      })
     )
   )
   const { clauses, args } = buildSearchWhereClause(queryTerms, normalizedTags)
@@ -49,15 +50,15 @@ export async function searchCatalog(
   ])
 
   return {
-    items: visiblePackageNames
-      .map((packageName) => {
-        const row = packageMap.get(packageName)
+    items: visiblePackageNames.flatMap((packageName) => {
+      const row = packageMap.get(packageName)
 
-        if (!row) {
-          return null
-        }
+      if (!row) {
+        return []
+      }
 
-        return {
+      return [
+        {
           packageName,
           repositoryUrl: normalizeNullableString(row.repository_url),
           packageUrl: String(row.package_url),
@@ -72,11 +73,9 @@ export async function searchCatalog(
             row.package_last_published_at
           ),
           tags: tagMap.get(packageName) ?? [],
-        }
-      })
-      .filter((item): item is CatalogSearchResponse["items"][number] =>
-        Boolean(item)
-      ),
+        },
+      ]
+    }),
     nextCursor: hasMore
       ? encodeCatalogCursor(params.offset + params.limit)
       : null,

@@ -90,8 +90,10 @@ export function useCatalogData(input: {
     ...searchQueries.map((query) => query.data?.totalApprox ?? 0)
   )
   const availableTags = (tagsQuery.data?.items ?? [])
-    .map((item) => normalizeValue(item.id || item.label))
-    .filter(Boolean)
+    .flatMap((item) => {
+      const normalizedTag = normalizeValue(item.id || item.label)
+      return normalizedTag ? [normalizedTag] : []
+    })
     .sort((left, right) => left.localeCompare(right))
   const isLoading = getIsCatalogSearchLoading(searchQueries)
   const isFetchingRows = searchQueries.some((query) => query.isFetching)

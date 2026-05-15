@@ -153,24 +153,33 @@ async function applyStatements(
   client: CatalogDatabaseClient,
   statements: InStatement[]
 ) {
-  for (const statement of statements) {
-    await client.execute(statement)
+  if (statements.length === 0) {
+    return
   }
+
+  await client.batch(statements, "write")
 }
 
 async function hasLegacyCatalogSchema(client: CatalogDatabaseClient) {
-  for (const [tableName, expectedColumns] of Object.entries(
-    EXPECTED_TABLE_COLUMNS
-  )) {
-    const currentColumns = await getTableColumns(client, tableName)
+  const tables = await Promise.all(
+    Object.entries(EXPECTED_TABLE_COLUMNS).map(
+      async ([tableName, expectedColumns]) => ({
+        currentColumns: await getTableColumns(client, tableName),
+        expectedColumns,
+      })
+    )
+  )
 
+  for (const { currentColumns, expectedColumns } of tables) {
     if (currentColumns === null) {
       continue
     }
 
+    const currentColumnSet = new Set(currentColumns)
+
     if (
       currentColumns.length !== expectedColumns.length ||
-      expectedColumns.some((column) => !currentColumns.includes(column))
+      expectedColumns.some((column) => !currentColumnSet.has(column))
     ) {
       return true
     }

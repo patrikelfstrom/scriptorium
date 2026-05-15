@@ -118,7 +118,7 @@ class GitHubMetadataFetchError extends Error {
   }
 }
 
-export type SyncNpmCatalogOptions = {
+type SyncNpmCatalogOptions = {
   githubToken: string
   onProgress?: (message: string) => void
   topPackageLimit: number
@@ -197,6 +197,8 @@ export async function syncNpmCatalog(
   )
   let storedCount = 0
   let lastWriteProgressAt = Date.now()
+  const writeQueue = new PQueue({ concurrency: 1 })
+  const writeTasks: Array<Promise<void>> = []
 
   for (
     let index = 0;
@@ -204,79 +206,86 @@ export async function syncNpmCatalog(
     index += DEFAULT_WRITE_BATCH_SIZE
   ) {
     const batch = packageMetadata.slice(index, index + DEFAULT_WRITE_BATCH_SIZE)
-    const statements = batch.flatMap((item) => {
-      const repositoryRef = parseGitHubRepositoryRef(item.repositoryUrl)
-      const enrichmentOutcome = item.isRemoved
-        ? {
-            kind: "replace" as const,
-            repositoryStars: null,
-            repositoryTags: [],
+    writeTasks.push(
+      writeQueue.add(async () => {
+        const statements = batch.flatMap((item) => {
+          const repositoryRef = parseGitHubRepositoryRef(item.repositoryUrl)
+          const enrichmentOutcome = item.isRemoved
+            ? {
+                kind: "replace" as const,
+                repositoryStars: null,
+                repositoryTags: [],
+              }
+            : getRepositoryEnrichmentOutcome(
+                item.packageName,
+                item.repositoryUrl,
+                repositoryRef,
+                existingRepositoryUrlsByPackage,
+                githubMetadataByRepository
+              )
+
+          const packageRecord: CatalogPackageRecord = {
+            packageName: item.packageName,
+            repositoryUrl: item.repositoryUrl,
+            packageUrl: item.packageUrl,
+            packageDescription: item.packageDescription,
+            homepageUrl: item.homepageUrl,
+            repositoryStars:
+              enrichmentOutcome.kind === "replace"
+                ? enrichmentOutcome.repositoryStars
+                : null,
+            packageDownloads: item.packageDownloads,
+            packageDownloadsPeriod: item.packageDownloadsPeriod,
+            packageLastPublishedAt: item.packageLastPublishedAt,
+            lastSyncedAt: syncedAt,
+            preserveRepositoryUrlOnNull: item.repositoryUrl == null,
+            preservePackageDescriptionOnNull: item.packageDescription == null,
+            preserveHomepageUrlOnNull: item.homepageUrl == null,
+            preserveRepositoryStarsOnNull:
+              enrichmentOutcome.kind === "preserve",
           }
-        : getRepositoryEnrichmentOutcome(
-            item.packageName,
-            item.repositoryUrl,
-            repositoryRef,
-            existingRepositoryUrlsByPackage,
-            githubMetadataByRepository
+
+          const statements = [
+            createUpsertPackageStatement(packageRecord),
+            ...createReplaceTagStatements(
+              "package_tags",
+              item.packageName,
+              item.packageTags
+            ),
+          ]
+
+          if (enrichmentOutcome.kind === "replace") {
+            statements.push(
+              ...createReplaceTagStatements(
+                "repository_tags",
+                item.packageName,
+                enrichmentOutcome.repositoryTags
+              )
+            )
+          }
+
+          return statements
+        })
+
+        await client.batch(statements, "write")
+        storedCount += batch.length
+
+        const now = Date.now()
+
+        if (
+          now - lastWriteProgressAt >= PROGRESS_INTERVAL_MS ||
+          storedCount === packageMetadata.length
+        ) {
+          options.onProgress?.(
+            `Stored ${storedCount}/${packageMetadata.length} npm packages.`
           )
-
-      const packageRecord: CatalogPackageRecord = {
-        packageName: item.packageName,
-        repositoryUrl: item.repositoryUrl,
-        packageUrl: item.packageUrl,
-        packageDescription: item.packageDescription,
-        homepageUrl: item.homepageUrl,
-        repositoryStars:
-          enrichmentOutcome.kind === "replace"
-            ? enrichmentOutcome.repositoryStars
-            : null,
-        packageDownloads: item.packageDownloads,
-        packageDownloadsPeriod: item.packageDownloadsPeriod,
-        packageLastPublishedAt: item.packageLastPublishedAt,
-        lastSyncedAt: syncedAt,
-        preserveRepositoryUrlOnNull: item.repositoryUrl == null,
-        preservePackageDescriptionOnNull: item.packageDescription == null,
-        preserveHomepageUrlOnNull: item.homepageUrl == null,
-        preserveRepositoryStarsOnNull: enrichmentOutcome.kind === "preserve",
-      }
-
-      const statements = [
-        createUpsertPackageStatement(packageRecord),
-        ...createReplaceTagStatements(
-          "package_tags",
-          item.packageName,
-          item.packageTags
-        ),
-      ]
-
-      if (enrichmentOutcome.kind === "replace") {
-        statements.push(
-          ...createReplaceTagStatements(
-            "repository_tags",
-            item.packageName,
-            enrichmentOutcome.repositoryTags
-          )
-        )
-      }
-
-      return statements
-    })
-
-    await client.batch(statements, "write")
-    storedCount += batch.length
-
-    const now = Date.now()
-
-    if (
-      now - lastWriteProgressAt >= PROGRESS_INTERVAL_MS ||
-      storedCount === packageMetadata.length
-    ) {
-      options.onProgress?.(
-        `Stored ${storedCount}/${packageMetadata.length} npm packages.`
-      )
-      lastWriteProgressAt = now
-    }
+          lastWriteProgressAt = now
+        }
+      })
+    )
   }
+
+  await Promise.all(writeTasks)
 
   options.onProgress?.("Pruning orphaned tags.")
   await pruneOrphanedTags(client)
@@ -446,23 +455,23 @@ async function loadExistingRepositoryUrls(
   const repositoryUrls = new Map<string, string | null>()
   const uniquePackageNames = Array.from(new Set(packageNames))
 
-  for (let index = 0; index < uniquePackageNames.length; index += 500) {
-    const batch = uniquePackageNames.slice(index, index + 500)
+  const batches = getChunkedEntries(uniquePackageNames, 500)
+  const results = await Promise.all(
+    batches.map(async (batch) => {
+      const placeholders = batch.map(() => "?").join(", ")
 
-    if (batch.length === 0) {
-      continue
-    }
-
-    const placeholders = batch.map(() => "?").join(", ")
-    const result = await client.execute({
-      sql: `
-        SELECT package_name, repository_url
-        FROM packages
-        WHERE package_name IN (${placeholders})
-      `,
-      args: batch,
+      return client.execute({
+        sql: `
+          SELECT package_name, repository_url
+          FROM packages
+          WHERE package_name IN (${placeholders})
+        `,
+        args: batch,
+      })
     })
+  )
 
+  for (const result of results) {
     for (const row of result.rows) {
       repositoryUrls.set(
         String(row.package_name),
@@ -785,36 +794,51 @@ async function fetchGitHubRepositoryMetadataBatch(
   const githubGraphqlUrl =
     input.githubGraphqlUrl ?? "https://api.github.com/graphql"
   const githubBatchSize = input.githubBatchSize ?? DEFAULT_GITHUB_BATCH_SIZE
+  const githubQueue = new PQueue({ concurrency: 1 })
+  const githubTasks: Array<Promise<void>> = []
+  let isEnrichmentUnavailable = false
 
-  for (let index = 0; index < repositories.length; index += githubBatchSize) {
-    const batch = repositories.slice(index, index + githubBatchSize)
-    let batchMetadata: GitHubRepositoryMetadataMap
+  getChunkedEntries(repositories, githubBatchSize).forEach(
+    (batch, batchIndex) => {
+      githubTasks.push(
+        githubQueue.add(async () => {
+          if (isEnrichmentUnavailable) {
+            return
+          }
 
-    try {
-      batchMetadata = await fetchGitHubRepositoryMetadata(
-        batch,
-        githubGraphqlUrl,
-        input.githubToken
+          let batchMetadata: GitHubRepositoryMetadataMap
+
+          try {
+            batchMetadata = await fetchGitHubRepositoryMetadata(
+              batch,
+              githubGraphqlUrl,
+              input.githubToken
+            )
+          } catch (error) {
+            if (isRecoverableGitHubMetadataError(error)) {
+              isEnrichmentUnavailable = true
+              input.onProgress?.(
+                `GitHub repository enrichment became unavailable (${error.message}). Preserving previously synced repository metadata for any repositories not enriched in this run.`
+              )
+              return
+            }
+
+            throw error
+          }
+
+          for (const [key, value] of batchMetadata) {
+            repositoryMetadata.set(key, value)
+          }
+
+          input.onProgress?.(
+            `Enriched ${Math.min((batchIndex + 1) * githubBatchSize, repositories.length)}/${repositories.length} GitHub repositories.`
+          )
+        })
       )
-    } catch (error) {
-      if (isRecoverableGitHubMetadataError(error)) {
-        input.onProgress?.(
-          `GitHub repository enrichment became unavailable (${error.message}). Preserving previously synced repository metadata for the remaining ${repositories.length - index} repositories.`
-        )
-        break
-      }
-
-      throw error
     }
+  )
 
-    for (const [key, value] of batchMetadata) {
-      repositoryMetadata.set(key, value)
-    }
-
-    input.onProgress?.(
-      `Enriched ${Math.min(index + batch.length, repositories.length)}/${repositories.length} GitHub repositories.`
-    )
-  }
+  await Promise.all(githubTasks)
 
   return repositoryMetadata
 }
@@ -1063,10 +1087,14 @@ function normalizeKeywords(value: unknown) {
 
   return Array.from(
     new Set(
-      value
-        .filter((item): item is string => typeof item === "string")
-        .map((item) => item.trim())
-        .filter(Boolean)
+      value.flatMap((item) => {
+        if (typeof item !== "string") {
+          return []
+        }
+
+        const normalizedItem = item.trim()
+        return normalizedItem ? [normalizedItem] : []
+      })
     )
   )
 }
@@ -1084,11 +1112,22 @@ function normalizeGitHubTopics(
 
   return Array.from(
     new Set(
-      nodes
-        .map((node) => normalizeOptionalString(node.topic?.name))
-        .filter((value): value is string => Boolean(value))
+      nodes.flatMap((node) => {
+        const normalizedTopic = normalizeOptionalString(node.topic?.name)
+        return normalizedTopic ? [normalizedTopic] : []
+      })
     )
   )
+}
+
+function getChunkedEntries<T>(entries: T[], chunkSize: number) {
+  const chunks: T[][] = []
+
+  for (let index = 0; index < entries.length; index += chunkSize) {
+    chunks.push(entries.slice(index, index + chunkSize))
+  }
+
+  return chunks
 }
 
 function normalizeRepositoryUrl(value: unknown) {

@@ -113,7 +113,6 @@ export function SearchFilter({
             aria-controls={`${inputId}-suggestions`}
             aria-expanded={isSuggestionsOpen && tagSuggestions.length > 0}
             aria-label="Filter tooling by text and tag"
-            role="combobox"
           />
         </div>
         {isSuggestionsOpen && tagSuggestions.length > 0 ? (

@@ -1,7 +1,5 @@
 import { CatalogPage } from "@/features/catalog/CatalogPage"
 
-export function App() {
+export default function App() {
   return <CatalogPage />
 }
-
-export default App

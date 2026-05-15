@@ -7,10 +7,7 @@ import {
   type CatalogTagListResponse,
 } from "../../../shared/catalog"
 
-export function createCatalogApiUrl(
-  pathname: string,
-  searchParams?: URLSearchParams
-) {
+function createCatalogApiUrl(pathname: string, searchParams?: URLSearchParams) {
   const baseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL)
   const query = searchParams?.toString()
   const suffix = query ? `?${query}` : ""

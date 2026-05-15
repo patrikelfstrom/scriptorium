@@ -22,8 +22,10 @@ export function mapCatalogItemsToRows(items: CatalogItem[]): CatalogRow[] {
     ),
     tags: uniqueValues(
       item.tags
-        .map(normalizeOptionalString)
-        .filter((tag): tag is string => Boolean(tag))
+        .flatMap((tag) => {
+          const normalizedTag = normalizeOptionalString(tag)
+          return normalizedTag ? [normalizedTag] : []
+        })
         .sort((left, right) => left.localeCompare(right))
     ),
   }))

@@ -122,7 +122,7 @@ export function ResultsTable({
   ])
 
   if (isLoading && rows.length === 0) {
-    return <TableMessage message="Loading packages..." />
+    return <TableMessage message="Loading packages…" />
   }
 
   if (errorMessage && rows.length === 0) {
@@ -149,7 +149,7 @@ export function ResultsTable({
         }))
 
   if (renderedRows.length === 0) {
-    return <TableMessage message="Loading packages..." />
+    return <TableMessage message="Loading packages…" />
   }
 
   return (
@@ -266,7 +266,7 @@ export function ResultsTable({
       ) : null}
       {isFetchingRows ? (
         <div className="border-t border-border/60 bg-background/90 px-4 py-3 text-sm text-muted-foreground">
-          Loading tooling...
+          Loading tooling…
         </div>
       ) : null}
     </div>
@@ -334,7 +334,7 @@ function TableMessage({
 function LoadingRowCells() {
   return (
     <>
-      <td data-slot="table-cell" className="w-0 px-4 py-4 align-middle">
+      <td data-slot="table-cell" className="w-0 p-4 align-middle">
         <div className="space-y-2" aria-hidden="true">
           <div className="h-4 w-48 rounded bg-muted/60" />
           <div className="h-3 w-32 rounded bg-muted/40" />
@@ -342,7 +342,7 @@ function LoadingRowCells() {
       </td>
       <td
         data-slot="table-cell"
-        className="px-4 py-4 text-right align-middle text-muted-foreground tabular-nums"
+        className="p-4 text-right align-middle text-muted-foreground tabular-nums"
       >
         <div
           className="ml-auto h-4 w-12 rounded bg-muted/50"
@@ -351,17 +351,17 @@ function LoadingRowCells() {
       </td>
       <td
         data-slot="table-cell"
-        className="px-4 py-4 text-right align-middle text-muted-foreground tabular-nums"
+        className="p-4 text-right align-middle text-muted-foreground tabular-nums"
       >
         <div
           className="ml-auto h-4 w-16 rounded bg-muted/40"
           aria-hidden="true"
         />
       </td>
-      <td data-slot="table-cell" className="px-4 py-4 align-middle">
+      <td data-slot="table-cell" className="p-4 align-middle">
         <div className="h-4 w-24 rounded bg-muted/40" aria-hidden="true" />
       </td>
-      <td data-slot="table-cell" className="px-4 py-4 align-middle">
+      <td data-slot="table-cell" className="p-4 align-middle">
         <div className="flex flex-wrap gap-2" aria-hidden="true">
           <div className="h-6 w-16 rounded-full bg-muted/50" />
           <div className="h-6 w-20 rounded-full bg-muted/40" />
@@ -393,7 +393,7 @@ function LoadedRowCells({
     <>
       <td
         data-slot="table-cell"
-        className="min-w-0 px-4 py-4 align-middle font-medium text-foreground"
+        className="min-w-0 p-4 align-middle font-medium text-foreground"
       >
         <div className="flex min-w-0 items-center gap-4">
           <div className="min-w-0 flex-1">
@@ -458,13 +458,13 @@ function LoadedRowCells({
       </td>
       <td
         data-slot="table-cell"
-        className="px-4 py-4 text-right align-middle text-muted-foreground tabular-nums"
+        className="p-4 text-right align-middle text-muted-foreground tabular-nums"
       >
         {formatStarCount(row.repositoryStars)}
       </td>
       <td
         data-slot="table-cell"
-        className="px-4 py-4 text-right align-middle text-muted-foreground tabular-nums"
+        className="p-4 text-right align-middle text-muted-foreground tabular-nums"
       >
         <span aria-label={downloadsTooltip} title={downloadsTooltip}>
           {formatDownloadCount(row.packageDownloads)}
@@ -472,11 +472,11 @@ function LoadedRowCells({
       </td>
       <td
         data-slot="table-cell"
-        className="px-4 py-4 align-middle text-muted-foreground tabular-nums"
+        className="p-4 align-middle text-muted-foreground tabular-nums"
       >
         {formatPublishedDate(row.packageLastPublishedAt) || "—"}
       </td>
-      <td data-slot="table-cell" className="px-4 py-4 align-middle">
+      <td data-slot="table-cell" className="p-4 align-middle">
         <div className="flex flex-wrap gap-2">
           {row.tags.map((tag) => {
             const isSelected = selectedTagSet.has(normalizeValue(tag))

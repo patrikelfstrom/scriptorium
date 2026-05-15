@@ -5,11 +5,11 @@ import { createClient } from "@libsql/client"
 
 import type { CatalogDatabaseBindings, CatalogDatabaseClient } from "./database"
 
-export type NodeCatalogDatabaseBindings = CatalogDatabaseBindings & {
+type NodeCatalogDatabaseBindings = CatalogDatabaseBindings & {
   SCRIPTORIUM_DATA_DIR?: string
 }
 
-export type NodeCatalogDatabaseOptions = {
+type NodeCatalogDatabaseOptions = {
   cwd?: string
   env?: NodeCatalogDatabaseBindings
   allowLocalFallback?: boolean
@@ -26,7 +26,7 @@ export function createNodeCatalogDatabaseClient(
   })
 }
 
-export function resolveNodeCatalogDatabaseConfig(
+function resolveNodeCatalogDatabaseConfig(
   options: NodeCatalogDatabaseOptions = {}
 ) {
   const env = {

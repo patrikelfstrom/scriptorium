@@ -35,7 +35,7 @@ describe("SearchFilter", () => {
   it("closes suggestions when pressing Enter", () => {
     render(<SearchFilterHarness />)
 
-    const input = screen.getByRole("combobox", {
+    const input = screen.getByRole("textbox", {
       name: "Filter tooling by text and tag",
     })
 
@@ -50,7 +50,7 @@ describe("SearchFilter", () => {
   it("closes suggestions when clicking outside the suggestion list", () => {
     render(<SearchFilterHarness />)
 
-    const input = screen.getByRole("combobox", {
+    const input = screen.getByRole("textbox", {
       name: "Filter tooling by text and tag",
     })
 
@@ -65,7 +65,7 @@ describe("SearchFilter", () => {
   it("moves forward with Tab and backward with Shift+Tab", () => {
     render(<SearchFilterHarness />)
 
-    const input = screen.getByRole("combobox", {
+    const input = screen.getByRole("textbox", {
       name: "Filter tooling by text and tag",
     })
 

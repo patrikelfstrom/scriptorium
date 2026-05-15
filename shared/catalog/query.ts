@@ -10,7 +10,7 @@ import {
 } from "./contracts"
 import { decodeCatalogCursor } from "./cursor"
 
-export function normalizeCatalogText(value?: string | null) {
+function normalizeCatalogText(value?: string | null) {
   if (typeof value !== "string") {
     return ""
   }
@@ -18,7 +18,7 @@ export function normalizeCatalogText(value?: string | null) {
   return value.trim().toLowerCase()
 }
 
-export function normalizeCatalogQuery(value?: string | null) {
+function normalizeCatalogQuery(value?: string | null) {
   if (typeof value !== "string") {
     return ""
   }
@@ -36,11 +36,16 @@ export function normalizeCatalogTags(rawTags?: string | null) {
 
 export function canonicalizeCatalogTags(tags: string[]) {
   return Array.from(
-    new Set(tags.map((value) => normalizeCatalogText(value)).filter(Boolean))
+    new Set(
+      tags.flatMap((value) => {
+        const normalizedValue = normalizeCatalogText(value)
+        return normalizedValue ? [normalizedValue] : []
+      })
+    )
   ).sort((left, right) => left.localeCompare(right))
 }
 
-export function clampCatalogLimit(value?: string | null) {
+function clampCatalogLimit(value?: string | null) {
   const parsedValue = Number.parseInt(value ?? "", 10)
   const resolved = Number.isInteger(parsedValue)
     ? parsedValue
@@ -64,10 +69,10 @@ export function normalizeCatalogSortDirection(
 }
 
 export function tokenizeCatalogQuery(query: string) {
-  return query
-    .split(/\s+/)
-    .map((term) => normalizeCatalogText(term))
-    .filter(Boolean)
+  return query.split(/\s+/).flatMap((term) => {
+    const normalizedTerm = normalizeCatalogText(term)
+    return normalizedTerm ? [normalizedTerm] : []
+  })
 }
 
 export function parseCatalogSearchParams(

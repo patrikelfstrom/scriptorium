@@ -17,19 +17,19 @@ export function loadDotEnvFile(cwd = process.cwd()) {
       continue
     }
 
-    const separatorIndex = trimmed.indexOf("=")
+    const [rawKey, ...rawValueParts] = trimmed.split("=")
 
-    if (separatorIndex < 0) {
+    if (rawValueParts.length === 0) {
       continue
     }
 
-    const key = trimmed.slice(0, separatorIndex).trim()
+    const key = rawKey.trim()
 
     if (!key || key in process.env) {
       continue
     }
 
-    let value = trimmed.slice(separatorIndex + 1).trim()
+    let value = rawValueParts.join("=").trim()
 
     if (
       (value.startsWith('"') && value.endsWith('"')) ||

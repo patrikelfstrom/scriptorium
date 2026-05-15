@@ -24,7 +24,7 @@ export type CatalogItem = {
   tags: string[]
 }
 
-export type CatalogTag = {
+type CatalogTag = {
   id: string
   label: string
   packageCount: number
@@ -40,7 +40,7 @@ export type CatalogTagListResponse = {
   items: CatalogTag[]
 }
 
-export type CatalogSearchParams = {
+type CatalogSearchParams = {
   query: string
   tags: string[]
   limit: number
