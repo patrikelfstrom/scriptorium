@@ -3,6 +3,7 @@ import {
   createTestCatalogDatabase,
   seedCatalogPackage,
 } from "../helpers/catalog-test-db"
+import { vi } from "vitest"
 
 describe("worker routes", () => {
   it("returns search and tags responses", async () => {
@@ -97,30 +98,226 @@ describe("worker routes", () => {
     }
   })
 
-  it("serves cached tags responses from Workers KV without hitting the database", async () => {
+  it("serves cached tags responses from Workers KV when the tags version matches", async () => {
     const cache = createMockKvNamespace()
-    const databaseIdentity = "file:/tmp/scriptorium-missing.db"
+    const database = await createTestCatalogDatabase()
     const requestUrl = "https://example.com/api/tags"
 
-    await cache.put(
-      await createCatalogCacheKey("tags", databaseIdentity, requestUrl),
-      JSON.stringify({
+    try {
+      await seedCatalogPackage(database.client, {
+        packageName: "react",
+        packageTags: ["react", "ui"],
+      })
+      const databaseIdentity = database.url
+      const versionRows = await database.client.execute(`
+        SELECT meta_value
+        FROM catalog_meta
+        WHERE meta_key = 'tags_version'
+        LIMIT 1
+      `)
+      const tagsVersion = String(versionRows.rows[0]?.meta_value ?? "0")
+
+      await cache.put(
+        await createCatalogCacheKey(
+          "tags",
+          databaseIdentity,
+          requestUrl,
+          tagsVersion
+        ),
+        JSON.stringify({
+          items: [{ id: "react", label: "React", packageCount: 12 }],
+        })
+      )
+
+      const response = await worker.fetch(new Request(requestUrl), {
+        TURSO_DATABASE_URL: databaseIdentity,
+        TURSO_AUTH_TOKEN: undefined,
+        CATALOG_CACHE: cache,
+      })
+
+      expect(response.status).toBe(200)
+      expect(cache.getCalls).toHaveLength(1)
+      expect(cache.putCalls).toHaveLength(2)
+      expect(await response.json()).toEqual({
         items: [{ id: "react", label: "React", packageCount: 12 }],
       })
-    )
+    } finally {
+      await database.cleanup()
+    }
+  })
 
-    const response = await worker.fetch(new Request(requestUrl), {
-      TURSO_DATABASE_URL: databaseIdentity,
-      TURSO_AUTH_TOKEN: undefined,
-      CATALOG_CACHE: cache,
-    })
+  it("reuses cached tags responses without re-reading the DB version on every request", async () => {
+    const database = await createTestCatalogDatabase()
 
-    expect(response.status).toBe(200)
-    expect(cache.getCalls).toHaveLength(1)
-    expect(cache.putCalls).toHaveLength(1)
-    expect(await response.json()).toEqual({
-      items: [{ id: "react", label: "React", packageCount: 12 }],
-    })
+    try {
+      vi.useFakeTimers()
+      await seedCatalogPackage(database.client, {
+        packageName: "react",
+        packageTags: ["react", "ui"],
+      })
+
+      const env = {
+        TURSO_DATABASE_URL: database.url,
+        TURSO_AUTH_TOKEN: undefined,
+      }
+
+      const firstResponse = await worker.fetch(
+        new Request("https://example.com/api/tags"),
+        env
+      )
+      expect(firstResponse.status).toBe(200)
+      const firstPayload = await firstResponse.json()
+
+      await database.cleanup()
+      vi.advanceTimersByTime(16_000)
+
+      const secondResponse = await worker.fetch(
+        new Request("https://example.com/api/tags"),
+        env
+      )
+
+      expect(secondResponse.status).toBe(200)
+      expect(await secondResponse.json()).toEqual(firstPayload)
+    } catch (error) {
+      await database.cleanup()
+      throw error
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("serves the previous in-memory tags payload after a version bump if the fresh read path goes away", async () => {
+    const database = await createTestCatalogDatabase()
+
+    try {
+      vi.useFakeTimers()
+      await seedCatalogPackage(database.client, {
+        packageName: "react",
+        packageTags: ["react", "ui"],
+      })
+
+      const env = {
+        TURSO_DATABASE_URL: database.url,
+        TURSO_AUTH_TOKEN: undefined,
+      }
+
+      const firstResponse = await worker.fetch(
+        new Request("https://example.com/api/tags"),
+        env
+      )
+      expect(firstResponse.status).toBe(200)
+      const firstPayload = await firstResponse.json()
+
+      await database.client.execute(`
+        UPDATE catalog_meta
+        SET meta_value = CAST(meta_value AS INTEGER) + 1
+        WHERE meta_key = 'tags_version'
+      `)
+
+      await database.cleanup()
+      vi.advanceTimersByTime(16_000)
+
+      const secondResponse = await worker.fetch(
+        new Request("https://example.com/api/tags"),
+        env
+      )
+
+      expect(secondResponse.status).toBe(200)
+      expect(await secondResponse.json()).toEqual(firstPayload)
+    } catch (error) {
+      await database.cleanup()
+      throw error
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not mask fresh-path cache write failures with stale tags payloads", async () => {
+    const database = await createTestCatalogDatabase()
+    const originalCaches = (
+      globalThis as typeof globalThis & {
+        caches?: {
+          default?: {
+            match: (request: Request) => Promise<Response | undefined>
+            put: (request: Request, response: Response) => Promise<void>
+          }
+        }
+      }
+    ).caches
+
+    try {
+      vi.useFakeTimers()
+      await seedCatalogPackage(database.client, {
+        packageName: "react",
+        packageTags: ["react", "ui"],
+      })
+
+      const env = {
+        TURSO_DATABASE_URL: database.url,
+        TURSO_AUTH_TOKEN: undefined,
+      }
+
+      const firstResponse = await worker.fetch(
+        new Request("https://example.com/api/tags"),
+        env
+      )
+      expect(firstResponse.status).toBe(200)
+
+      await database.client.execute(`
+        UPDATE catalog_meta
+        SET meta_value = CAST(meta_value AS INTEGER) + 1
+        WHERE meta_key = 'tags_version'
+      `)
+
+      vi.advanceTimersByTime(16_000)
+      ;(
+        globalThis as typeof globalThis & {
+          caches?: CacheStorage & {
+            default?: {
+              match: (request: Request) => Promise<Response | undefined>
+              put: (request: Request, response: Response) => Promise<void>
+            }
+          }
+        }
+      ).caches = {
+        default: {
+          async match() {
+            return undefined
+          },
+          async put() {
+            throw new Error("edge cache write failed")
+          },
+        },
+      } as unknown as CacheStorage & {
+        default: {
+          match: (request: Request) => Promise<Response | undefined>
+          put: (request: Request, response: Response) => Promise<void>
+        }
+      }
+
+      const secondResponse = await worker.fetch(
+        new Request("https://example.com/api/tags"),
+        env
+      )
+
+      expect(secondResponse.status).toBe(500)
+      expect(await secondResponse.json()).toEqual({
+        error: "edge cache write failed",
+      })
+    } finally {
+      ;(
+        globalThis as typeof globalThis & {
+          caches?: {
+            default?: {
+              match: (request: Request) => Promise<Response | undefined>
+              put: (request: Request, response: Response) => Promise<void>
+            }
+          }
+        }
+      ).caches = originalCaches
+      vi.useRealTimers()
+      await database.cleanup()
+    }
   })
 
   it("reuses the same KV entry for equivalent search URLs", async () => {
@@ -204,21 +401,56 @@ describe("worker routes", () => {
       await database.cleanup()
     }
   })
+
+  it("repairs remote schema on-demand when tags read misses only tag_stats", async () => {
+    const database = await createTestCatalogDatabase()
+
+    try {
+      await seedCatalogPackage(database.client, {
+        packageName: "react",
+        packageTags: ["react", "ui"],
+      })
+      await database.client.execute("DROP TABLE IF EXISTS tag_stats")
+
+      const response = await worker.fetch(
+        new Request("https://example.com/api/tags"),
+        {
+          TURSO_DATABASE_URL: database.url,
+          TURSO_AUTH_TOKEN: undefined,
+        }
+      )
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        items: expect.arrayContaining([
+          { id: "react", label: "react", packageCount: 1 },
+          {
+            id: "component-library",
+            label: "component library",
+            packageCount: 1,
+          },
+        ]),
+      })
+    } finally {
+      await database.cleanup()
+    }
+  })
 })
 
 async function createCatalogCacheKey(
   scope: "search" | "tags",
   databaseIdentity: string,
-  requestUrl: string
+  requestUrl: string,
+  versionToken = ""
 ) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(
-      ["v1", scope, databaseIdentity, requestUrl].join("\n")
+      ["v2", scope, databaseIdentity, versionToken, requestUrl].join("\n")
     )
   )
 
-  return `v1:${scope}:${Array.from(new Uint8Array(digest), (byte) =>
+  return `v2:${scope}:${Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0")
   ).join("")}`
 }

@@ -1,7 +1,10 @@
 import type { InStatement } from "@libsql/client"
 
 import type { CatalogDatabaseClient } from "./database"
-import { createRebuildPackageSearchStatements } from "./package-store"
+import {
+  createRebuildPackageSearchStatements,
+  createRebuildTagStatsStatements,
+} from "./package-store"
 
 const EXPECTED_TABLE_COLUMNS = {
   packages: [
@@ -20,6 +23,8 @@ const EXPECTED_TABLE_COLUMNS = {
   repository_tags: ["package_name", "tag_id", "raw_value"],
   tags: ["tag_id", "label"],
   tag_aliases: ["alias", "tag_id"],
+  tag_stats: ["tag_id", "package_count"],
+  catalog_meta: ["meta_key", "meta_value"],
 } as const
 
 const schemaStatements: InStatement[] = [
@@ -69,6 +74,24 @@ const schemaStatements: InStatement[] = [
       tag_id TEXT NOT NULL,
       FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
     )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS tag_stats (
+      tag_id TEXT PRIMARY KEY,
+      package_count INTEGER NOT NULL,
+      FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS catalog_meta (
+      meta_key TEXT PRIMARY KEY,
+      meta_value TEXT NOT NULL
+    )
+  `,
+  `
+    INSERT INTO catalog_meta (meta_key, meta_value)
+    VALUES ('tags_version', '0')
+    ON CONFLICT(meta_key) DO NOTHING
   `,
   `
     CREATE VIRTUAL TABLE IF NOT EXISTS package_search_fts
@@ -139,6 +162,8 @@ const destructiveResetStatements: InStatement[] = [
   "DROP TABLE IF EXISTS package_tags",
   "DROP TABLE IF EXISTS package_search_fts",
   "DROP TABLE IF EXISTS tag_aliases",
+  "DROP TABLE IF EXISTS tag_stats",
+  "DROP TABLE IF EXISTS catalog_meta",
   "DROP TABLE IF EXISTS tags",
   "DROP TABLE IF EXISTS packages",
   "DROP TABLE IF EXISTS raw_ecosystems_packages",
@@ -153,12 +178,14 @@ export async function ensureCatalogSchema(client: CatalogDatabaseClient) {
   await applyStatements(client, obsoleteIndexDropStatements)
   await applyStatements(client, schemaStatements)
   await applyStatements(client, createRebuildPackageSearchStatements())
+  await applyStatements(client, createRebuildTagStatsStatements())
 }
 
 export async function resetCatalogSchema(client: CatalogDatabaseClient) {
   await applyStatements(client, destructiveResetStatements)
   await applyStatements(client, schemaStatements)
   await applyStatements(client, createRebuildPackageSearchStatements())
+  await applyStatements(client, createRebuildTagStatsStatements())
 }
 
 async function applyStatements(

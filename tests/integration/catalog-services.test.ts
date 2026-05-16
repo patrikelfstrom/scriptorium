@@ -308,6 +308,37 @@ describe("catalog services", () => {
     }
   })
 
+  it("lists tags with precomputed package counts", async () => {
+    const database = await createTestCatalogDatabase()
+
+    try {
+      await seedCatalogPackage(database.client, {
+        packageName: "react",
+        packageTags: ["react", "ui"],
+        repositoryTags: ["frontend"],
+      })
+      await seedCatalogPackage(database.client, {
+        packageName: "vite",
+        packageTags: ["build", "ui"],
+      })
+
+      const allTags = await listCatalogTags(database.client, {})
+
+      expect(allTags.items).toEqual([
+        {
+          id: "component-library",
+          label: "component library",
+          packageCount: 2,
+        },
+        { id: "build-tool", label: "build tool", packageCount: 1 },
+        { id: "front-end", label: "front end", packageCount: 1 },
+        { id: "react", label: "react", packageCount: 1 },
+      ])
+    } finally {
+      await database.cleanup()
+    }
+  })
+
   it("hides removed security holding packages from search and tag results", async () => {
     const database = await createTestCatalogDatabase()
 

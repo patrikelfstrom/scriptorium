@@ -1,6 +1,7 @@
 import type { InStatement } from "@libsql/client"
 
 import type { CatalogDatabaseClient } from "./database"
+import { createVisiblePackageSql } from "./package-removal"
 import { createTagLabel, normalizeTagValue } from "./tag-normalization"
 
 export type CatalogPackageRecord = {
@@ -43,6 +44,7 @@ export async function upsertPackage(
     [
       createUpsertPackageStatement(packageRecord),
       ...createRefreshPackageSearchStatements(packageRecord.packageName),
+      ...createRebuildTagStatsStatements(),
     ],
     "write"
   )
@@ -58,6 +60,7 @@ export async function replacePackageTags(
     [
       ...createReplaceTagStatements(tableName, packageName, rawTags),
       ...createRefreshPackageSearchStatements(packageName),
+      ...createRebuildTagStatsStatements(),
     ],
     "write"
   )
@@ -224,6 +227,93 @@ export function createRebuildPackageSearchStatements(): InStatement[] {
           p.package_name,
           ${PACKAGE_SEARCH_TEXT_SQL}
         FROM packages p
+      `,
+    },
+  ]
+}
+
+export function createRebuildTagStatsStatements(): InStatement[] {
+  return [
+    {
+      sql: `DELETE FROM tag_stats`,
+    },
+    {
+      sql: `
+        INSERT INTO tag_stats (tag_id, package_count)
+        WITH visible_tag_pairs AS (
+          SELECT DISTINCT pt.package_name, pt.tag_id
+          FROM package_tags pt
+          JOIN packages p ON p.package_name = pt.package_name
+          WHERE ${createVisiblePackageSql("p")}
+          UNION
+          SELECT DISTINCT rt.package_name, rt.tag_id
+          FROM repository_tags rt
+          JOIN packages p ON p.package_name = rt.package_name
+          WHERE ${createVisiblePackageSql("p")}
+        )
+        SELECT tag_id, COUNT(*) AS package_count
+        FROM visible_tag_pairs
+        GROUP BY tag_id
+      `,
+    },
+    ...createBumpTagsVersionStatements(),
+  ]
+}
+
+export function createRefreshTagStatsStatements(
+  tagIds: string[]
+): InStatement[] {
+  const uniqueTagIds = Array.from(new Set(tagIds))
+
+  if (uniqueTagIds.length === 0) {
+    return []
+  }
+
+  const placeholders = uniqueTagIds.map(() => "?").join(", ")
+  const valuesClause = uniqueTagIds.map(() => "(?)").join(", ")
+
+  return [
+    {
+      sql: `DELETE FROM tag_stats WHERE tag_id IN (${placeholders})`,
+      args: uniqueTagIds,
+    },
+    {
+      sql: `
+        WITH affected_tags(tag_id) AS (
+          VALUES ${valuesClause}
+        ),
+        visible_tag_pairs AS (
+          SELECT DISTINCT pt.package_name, pt.tag_id
+          FROM package_tags pt
+          JOIN affected_tags at ON at.tag_id = pt.tag_id
+          JOIN packages p ON p.package_name = pt.package_name
+          WHERE ${createVisiblePackageSql("p")}
+          UNION
+          SELECT DISTINCT rt.package_name, rt.tag_id
+          FROM repository_tags rt
+          JOIN affected_tags at ON at.tag_id = rt.tag_id
+          JOIN packages p ON p.package_name = rt.package_name
+          WHERE ${createVisiblePackageSql("p")}
+        )
+        INSERT INTO tag_stats (tag_id, package_count)
+        SELECT tag_id, COUNT(*) AS package_count
+        FROM visible_tag_pairs
+        GROUP BY tag_id
+      `,
+      args: uniqueTagIds,
+    },
+    ...createBumpTagsVersionStatements(),
+  ]
+}
+
+export function createBumpTagsVersionStatements(): InStatement[] {
+  return [
+    {
+      sql: `
+        INSERT INTO catalog_meta (meta_key, meta_value)
+        VALUES ('tags_version', '1')
+        ON CONFLICT(meta_key) DO UPDATE SET
+          meta_value = CAST(COALESCE(CAST(meta_value AS INTEGER), 0) + 1 AS TEXT)
       `,
     },
   ]

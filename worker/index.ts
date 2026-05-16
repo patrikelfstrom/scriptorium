@@ -44,9 +44,17 @@ const SEARCH_CACHE_CONTROL =
 const TAG_MEMORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const TAG_KV_CACHE_TTL_SECONDS = 24 * 60 * 60
 const SEARCH_KV_CACHE_TTL_SECONDS = 60 * 60
-const CATALOG_CACHE_VERSION = "v1"
+const TAG_VERSION_CACHE_TTL_MS = 15 * 1000
+const CATALOG_CACHE_VERSION = "v2"
 
 const schemaReadyPromises = new Map<string, Promise<void>>()
+const tagsVersionCache = new Map<
+  string,
+  {
+    expiresAt: number
+    version: string
+  }
+>()
 const tagPayloadCache = new Map<
   string,
   {
@@ -90,7 +98,8 @@ export default {
 async function handleSearchRequest(url: URL, env: WorkerEnv) {
   const params = parseCatalogSearchParams(url.searchParams)
   const request = createCanonicalSearchRequest(url, params)
-  const edgeCachedResponse = await getCachedEdgeResponse(request)
+  const edgeCacheRequest = createVersionedEdgeCacheRequest(request)
+  const edgeCachedResponse = await getCachedEdgeResponse(edgeCacheRequest)
 
   if (edgeCachedResponse) {
     return edgeCachedResponse
@@ -106,7 +115,7 @@ async function handleSearchRequest(url: URL, env: WorkerEnv) {
     const response = jsonResponse(kvCachedPayload, 200, {
       "Cache-Control": SEARCH_CACHE_CONTROL,
     })
-    await cacheEdgeResponse(request, response)
+    await cacheEdgeResponse(edgeCacheRequest, response)
     return response
   }
 
@@ -123,7 +132,7 @@ async function handleSearchRequest(url: URL, env: WorkerEnv) {
     payload,
     SEARCH_KV_CACHE_TTL_SECONDS
   )
-  await cacheEdgeResponse(request, response)
+  await cacheEdgeResponse(edgeCacheRequest, response)
 
   return response
 }
@@ -159,55 +168,164 @@ function createCanonicalSearchRequest(
 }
 
 async function handleTagsRequest(request: Request, _url: URL, env: WorkerEnv) {
-  const edgeCachedResponse = await getCachedEdgeResponse(request)
+  const databaseIdentity = getCatalogDatabaseIdentity(env)
+  const staleEdgeCacheRequest = createVersionedEdgeCacheRequest(request, {
+    tagsVersion: "stale",
+  })
+  const staleKvCacheKey = await createKvCacheKey(
+    "tags",
+    databaseIdentity,
+    request,
+    "stale"
+  )
+  let tagsVersion: string
+
+  try {
+    tagsVersion = await resolveTagsCacheVersion(env)
+  } catch (error) {
+    if (isTagStaleFallbackEligibleError(error)) {
+      const staleFallbackResponse = await getStaleTagsFallbackResponse(
+        env,
+        databaseIdentity,
+        staleEdgeCacheRequest,
+        staleKvCacheKey
+      )
+
+      if (staleFallbackResponse) {
+        return staleFallbackResponse
+      }
+    }
+
+    throw error
+  }
+
+  const tagCacheKey = `${databaseIdentity}:${tagsVersion}`
+  const edgeCacheRequest = createVersionedEdgeCacheRequest(request, {
+    tagsVersion,
+  })
+  const edgeCachedResponse = await getCachedEdgeResponse(edgeCacheRequest)
 
   if (edgeCachedResponse) {
+    pruneTagPayloadCache(databaseIdentity, tagCacheKey)
     return edgeCachedResponse
   }
 
-  const databaseIdentity = getCatalogDatabaseIdentity(env)
-  const memoryCachedPayload = getMemoryCachedTagsPayload(databaseIdentity)
+  const memoryCachedPayload = getMemoryCachedTagsPayload(tagCacheKey)
 
   if (memoryCachedPayload) {
+    pruneTagPayloadCache(databaseIdentity, tagCacheKey)
     return jsonResponse(memoryCachedPayload, 200, {
       "Cache-Control": TAG_CACHE_CONTROL,
     })
   }
 
-  const kvCacheKey = await createKvCacheKey("tags", databaseIdentity, request)
+  const kvCacheKey = await createKvCacheKey(
+    "tags",
+    databaseIdentity,
+    request,
+    tagsVersion
+  )
   const kvCachedPayload = await getKvCachedPayload<CatalogTagListResponse>(
     env,
     kvCacheKey
   )
 
   if (kvCachedPayload) {
-    tagPayloadCache.set(databaseIdentity, {
+    tagPayloadCache.set(tagCacheKey, {
       expiresAt: Date.now() + TAG_MEMORY_CACHE_TTL_MS,
       payload: kvCachedPayload,
     })
+    pruneTagPayloadCache(databaseIdentity, tagCacheKey)
 
     const response = jsonResponse(kvCachedPayload, 200, {
       "Cache-Control": TAG_CACHE_CONTROL,
     })
-    await cacheEdgeResponse(request, response)
+    await putKvCachedPayload(
+      env,
+      staleKvCacheKey,
+      kvCachedPayload,
+      TAG_KV_CACHE_TTL_SECONDS
+    )
+    await cacheEdgeResponse(edgeCacheRequest, response)
+    await cacheEdgeResponse(staleEdgeCacheRequest, response)
     return response
   }
 
-  const payload = await runCatalogReadWithSchemaRepair(env, (client) =>
-    listCatalogTags(client, parseCatalogTagListParams())
-  )
+  let payload: CatalogTagListResponse
+
+  try {
+    payload = await runCatalogReadWithSchemaRepair(env, (client) =>
+      listCatalogTags(client, parseCatalogTagListParams())
+    )
+  } catch (error) {
+    if (isTagStaleFallbackEligibleError(error)) {
+      const staleFallbackResponse = await getStaleTagsFallbackResponse(
+        env,
+        databaseIdentity,
+        staleEdgeCacheRequest,
+        staleKvCacheKey
+      )
+
+      if (staleFallbackResponse) {
+        return staleFallbackResponse
+      }
+    }
+
+    throw error
+  }
+
   const response = jsonResponse(payload, 200, {
     "Cache-Control": TAG_CACHE_CONTROL,
   })
 
-  tagPayloadCache.set(databaseIdentity, {
+  tagPayloadCache.set(tagCacheKey, {
     expiresAt: Date.now() + TAG_MEMORY_CACHE_TTL_MS,
     payload,
   })
+  pruneTagPayloadCache(databaseIdentity, tagCacheKey)
   await putKvCachedPayload(env, kvCacheKey, payload, TAG_KV_CACHE_TTL_SECONDS)
-  await cacheEdgeResponse(request, response)
+  await putKvCachedPayload(
+    env,
+    staleKvCacheKey,
+    payload,
+    TAG_KV_CACHE_TTL_SECONDS
+  )
+  await cacheEdgeResponse(edgeCacheRequest, response)
+  await cacheEdgeResponse(staleEdgeCacheRequest, response)
 
   return response
+}
+
+async function resolveTagsCacheVersion(env: WorkerEnv) {
+  const databaseIdentity = getCatalogDatabaseIdentity(env)
+  const cachedVersion = getCachedTagsVersion(databaseIdentity)
+
+  if (cachedVersion) {
+    return cachedVersion
+  }
+
+  const resolvedVersion = await runCatalogReadWithSchemaRepair(
+    env,
+    async (client) => {
+      const result = await client.execute({
+        sql: `
+        SELECT meta_value
+        FROM catalog_meta
+        WHERE meta_key = 'tags_version'
+        LIMIT 1
+      `,
+      })
+
+      return String(result.rows[0]?.meta_value ?? "0")
+    }
+  )
+
+  tagsVersionCache.set(databaseIdentity, {
+    expiresAt: Date.now() + TAG_VERSION_CACHE_TTL_MS,
+    version: resolvedVersion,
+  })
+
+  return resolvedVersion
 }
 
 async function ensureCatalogSchemaReady(env: WorkerEnv) {
@@ -279,19 +397,138 @@ function isCatalogSchemaCompatibilityError(error: unknown) {
   )
 }
 
-function getMemoryCachedTagsPayload(databaseIdentity: string) {
-  const cachedEntry = tagPayloadCache.get(databaseIdentity)
+function getMemoryCachedTagsPayload(cacheKey: string) {
+  const cachedEntry = tagPayloadCache.get(cacheKey)
 
   if (!cachedEntry) {
     return null
   }
 
   if (cachedEntry.expiresAt <= Date.now()) {
-    tagPayloadCache.delete(databaseIdentity)
+    tagPayloadCache.delete(cacheKey)
     return null
   }
 
   return cachedEntry.payload
+}
+
+function getLatestMemoryCachedTagsPayload(databaseIdentity: string) {
+  const keyPrefix = `${databaseIdentity}:`
+  let newestEntry:
+    | {
+        expiresAt: number
+        payload: CatalogTagListResponse
+      }
+    | undefined
+
+  for (const [cacheKey, cacheEntry] of tagPayloadCache.entries()) {
+    if (!cacheKey.startsWith(keyPrefix)) {
+      continue
+    }
+
+    if (cacheEntry.expiresAt <= Date.now()) {
+      tagPayloadCache.delete(cacheKey)
+      continue
+    }
+
+    if (!newestEntry || cacheEntry.expiresAt > newestEntry.expiresAt) {
+      newestEntry = cacheEntry
+    }
+  }
+
+  return newestEntry?.payload ?? null
+}
+
+function pruneTagPayloadCache(
+  databaseIdentity: string,
+  activeCacheKey: string
+) {
+  const keyPrefix = `${databaseIdentity}:`
+
+  for (const [cacheKey, cacheEntry] of tagPayloadCache.entries()) {
+    if (!cacheKey.startsWith(keyPrefix)) {
+      continue
+    }
+
+    if (cacheEntry.expiresAt <= Date.now() || cacheKey !== activeCacheKey) {
+      tagPayloadCache.delete(cacheKey)
+    }
+  }
+}
+
+async function getStaleTagsFallbackResponse(
+  env: WorkerEnv,
+  databaseIdentity: string,
+  staleEdgeCacheRequest: Request,
+  staleKvCacheKey: string
+) {
+  const staleEdgeCachedResponse = await getCachedEdgeResponse(
+    staleEdgeCacheRequest
+  )
+
+  if (staleEdgeCachedResponse) {
+    return staleEdgeCachedResponse
+  }
+
+  const staleMemoryPayload = getLatestMemoryCachedTagsPayload(databaseIdentity)
+
+  if (staleMemoryPayload) {
+    return jsonResponse(staleMemoryPayload, 200, {
+      "Cache-Control": TAG_CACHE_CONTROL,
+    })
+  }
+
+  const staleKvCachedPayload = await getKvCachedPayload<CatalogTagListResponse>(
+    env,
+    staleKvCacheKey
+  )
+
+  if (!staleKvCachedPayload) {
+    return null
+  }
+
+  const response = jsonResponse(staleKvCachedPayload, 200, {
+    "Cache-Control": TAG_CACHE_CONTROL,
+  })
+  await cacheEdgeResponse(staleEdgeCacheRequest, response)
+  return response
+}
+
+function isTagStaleFallbackEligibleError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const message = error.message.toLowerCase()
+
+  return (
+    message.includes("fetch failed") ||
+    message.includes("network") ||
+    message.includes("timed out") ||
+    message.includes("timeout") ||
+    message.includes("unable to open") ||
+    message.includes("cantopen") ||
+    message.includes("closed") ||
+    message.includes("enotfound") ||
+    message.includes("econnrefused") ||
+    message.includes("econnreset") ||
+    message.includes("connection")
+  )
+}
+
+function getCachedTagsVersion(databaseIdentity: string) {
+  const cachedEntry = tagsVersionCache.get(databaseIdentity)
+
+  if (!cachedEntry) {
+    return null
+  }
+
+  if (cachedEntry.expiresAt <= Date.now()) {
+    tagsVersionCache.delete(databaseIdentity)
+    return null
+  }
+
+  return cachedEntry.version
 }
 
 async function getCachedEdgeResponse(request: Request) {
@@ -313,6 +550,24 @@ async function cacheEdgeResponse(request: Request, response: Response) {
   }
 
   await edgeCache.put(request, response.clone())
+}
+
+function createVersionedEdgeCacheRequest(
+  request: Request,
+  options?: {
+    tagsVersion?: string
+  }
+) {
+  const url = new URL(request.url)
+  url.searchParams.set("__cv", CATALOG_CACHE_VERSION)
+  if (options?.tagsVersion) {
+    url.searchParams.set("__tv", options.tagsVersion)
+  }
+
+  return new Request(url.toString(), {
+    method: request.method,
+    headers: request.headers,
+  })
 }
 
 function getEdgeCache() {
@@ -364,12 +619,19 @@ async function putKvCachedPayload<T>(
 async function createKvCacheKey(
   scope: "search" | "tags",
   databaseIdentity: string,
-  request: Request
+  request: Request,
+  versionToken = ""
 ) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(
-      [CATALOG_CACHE_VERSION, scope, databaseIdentity, request.url].join("\n")
+      [
+        CATALOG_CACHE_VERSION,
+        scope,
+        databaseIdentity,
+        versionToken,
+        request.url,
+      ].join("\n")
     )
   )
 

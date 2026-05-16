@@ -112,25 +112,13 @@ export async function listCatalogTags(
 
   const result = await client.execute({
     sql: `
-      WITH visible_tag_pairs AS (
-        SELECT DISTINCT pt.package_name, pt.tag_id
-        FROM package_tags pt
-        JOIN packages p ON p.package_name = pt.package_name
-        WHERE ${createVisiblePackageSql("p")}
-        UNION
-        SELECT DISTINCT rt.package_name, rt.tag_id
-        FROM repository_tags rt
-        JOIN packages p ON p.package_name = rt.package_name
-        WHERE ${createVisiblePackageSql("p")}
-      )
       SELECT
-        vtp.tag_id,
+        ts.tag_id,
         t.label,
-        COUNT(*) AS package_count
-      FROM visible_tag_pairs vtp
-      JOIN tags t ON t.tag_id = vtp.tag_id
-      GROUP BY vtp.tag_id, t.label
-      ORDER BY package_count DESC, t.tag_id ASC
+        ts.package_count
+      FROM tag_stats ts
+      JOIN tags t ON t.tag_id = ts.tag_id
+      ORDER BY ts.package_count DESC, t.label COLLATE NOCASE ASC, ts.tag_id ASC
       LIMIT 500
     `,
   })

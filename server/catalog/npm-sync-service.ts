@@ -15,7 +15,9 @@ import {
   createReplaceTagStatements,
   createPackageUrl,
   createRebuildPackageSearchStatements,
+  createRebuildTagStatsStatements,
   createRefreshPackageSearchStatementsForPackages,
+  createRefreshTagStatsStatements,
   createUpsertPackageStatement,
   type CatalogPackageRecord,
 } from "./package-store"
@@ -26,6 +28,7 @@ import {
   hasUnpublishedRegistryMarker,
   isSecurityHoldingPackage,
 } from "./package-removal"
+import { normalizeTagValue } from "./tag-normalization"
 
 const DEFAULT_DOWNLOADS_PERIOD = "last-month"
 const DEFAULT_GITHUB_BATCH_SIZE = 50
@@ -210,6 +213,10 @@ export async function syncNpmCatalog(
     const batch = packageMetadata.slice(index, index + DEFAULT_WRITE_BATCH_SIZE)
     writeTasks.push(
       writeQueue.add(async () => {
+        const batchPackageNames = batch.map((item) => item.packageName)
+        const affectedTagIds = new Set(
+          await loadExistingTagIdsForPackages(client, batchPackageNames)
+        )
         const statements = batch.flatMap((item) => {
           const repositoryRef = parseGitHubRepositoryRef(item.repositoryUrl)
           const enrichmentOutcome = item.isRemoved
@@ -255,6 +262,9 @@ export async function syncNpmCatalog(
               item.packageTags
             ),
           ]
+          collectNormalizedTagIds(item.packageTags).forEach((tagId) => {
+            affectedTagIds.add(tagId)
+          })
 
           if (enrichmentOutcome.kind === "replace") {
             statements.push(
@@ -264,17 +274,24 @@ export async function syncNpmCatalog(
                 enrichmentOutcome.repositoryTags
               )
             )
+            collectNormalizedTagIds(enrichmentOutcome.repositoryTags).forEach(
+              (tagId) => {
+                affectedTagIds.add(tagId)
+              }
+            )
           }
 
           return statements
         })
         statements.push(
-          ...createRefreshPackageSearchStatementsForPackages(
-            batch.map((item) => item.packageName)
-          )
+          ...createRefreshPackageSearchStatementsForPackages(batchPackageNames)
         )
 
         await client.batch(statements, "write")
+        await client.batch(
+          createRefreshTagStatsStatements(Array.from(affectedTagIds)),
+          "write"
+        )
         storedCount += batch.length
 
         const now = Date.now()
@@ -298,6 +315,8 @@ export async function syncNpmCatalog(
   await pruneOrphanedTags(client)
   options.onProgress?.("Rebuilding package search index.")
   await client.batch(createRebuildPackageSearchStatements(), "write")
+  options.onProgress?.("Rebuilding tag stats.")
+  await client.batch(createRebuildTagStatsStatements(), "write")
 
   options.onProgress?.(`Stored ${packageMetadata.length} npm packages total.`)
 
@@ -492,8 +511,53 @@ async function loadExistingRepositoryUrls(
   return repositoryUrls
 }
 
+async function loadExistingTagIdsForPackages(
+  client: CatalogDatabaseClient,
+  packageNames: string[]
+) {
+  const uniquePackageNames = Array.from(new Set(packageNames))
+
+  if (uniquePackageNames.length === 0) {
+    return [] as string[]
+  }
+
+  const placeholders = uniquePackageNames.map(() => "?").join(", ")
+  const result = await client.execute({
+    sql: `
+      SELECT DISTINCT tag_id
+      FROM (
+        SELECT tag_id
+        FROM package_tags
+        WHERE package_name IN (${placeholders})
+        UNION ALL
+        SELECT tag_id
+        FROM repository_tags
+        WHERE package_name IN (${placeholders})
+      )
+    `,
+    args: [...uniquePackageNames, ...uniquePackageNames],
+  })
+
+  return result.rows.map((row) => String(row.tag_id))
+}
+
 function normalizeStoredUrl(value: unknown) {
   return typeof value === "string" ? value : null
+}
+
+function collectNormalizedTagIds(rawTags: string[]) {
+  return Array.from(
+    new Set(
+      rawTags.flatMap((rawTag) => {
+        const normalizedRawTag = normalizeOptionalString(rawTag)
+        const normalizedTagId = normalizedRawTag
+          ? normalizeTagValue(normalizedRawTag)
+          : undefined
+
+        return normalizedTagId ? [normalizedTagId] : []
+      })
+    )
+  )
 }
 
 function normalizeDownloadCountSelection(
@@ -751,8 +815,9 @@ async function fetchNpmPackageMetadata(
     })
   ) {
     const npmViewResolves =
-      (await options.npmViewRunner?.(packageName)) ??
-      (await resolvePackageWithNpmView(packageName))
+      typeof options.npmViewRunner === "function"
+        ? await options.npmViewRunner(packageName)
+        : await resolvePackageWithNpmView(packageName)
 
     if (npmViewResolves === null) {
       options.onProgress?.(
