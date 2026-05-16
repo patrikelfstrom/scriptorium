@@ -21,6 +21,7 @@ export function SearchFilter({
   activeSuggestionIndex,
   inputId,
   isDarkMode,
+  onInputFocus,
   searchText,
   selectedTags,
   setActiveSuggestionIndex,
@@ -32,6 +33,7 @@ export function SearchFilter({
   activeSuggestionIndex: number
   inputId: string
   isDarkMode: boolean
+  onInputFocus?: () => void
   searchText: string
   selectedTags: string[]
   setActiveSuggestionIndex: Dispatch<SetStateAction<number>>
@@ -89,6 +91,7 @@ export function SearchFilter({
           <input
             id={inputId}
             value={searchText}
+            onFocus={onInputFocus}
             onChange={(event) => {
               setSearchText(event.target.value)
               setActiveSuggestionIndex(-1)

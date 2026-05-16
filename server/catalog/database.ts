@@ -28,6 +28,12 @@ export function getCatalogDatabaseIdentity(bindings: CatalogDatabaseBindings) {
   return databaseUrl
 }
 
+export function shouldEagerlyEnsureCatalogSchemaOnRead(
+  bindings: CatalogDatabaseBindings
+) {
+  return !bindings.TURSO_DATABASE_URL
+}
+
 export function createCatalogDatabaseClient(
   bindings: CatalogDatabaseBindings
 ): CatalogDatabaseClient {

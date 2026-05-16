@@ -405,6 +405,9 @@ describe("npm catalog sync", () => {
         downloadCountsEntries: [
           { packageName: "react", packageDownloads: 1100 },
         ],
+        npmViewRunner() {
+          return Promise.resolve(true)
+        },
       })
 
       const packageRows = await database.client.execute({
@@ -442,6 +445,215 @@ describe("npm catalog sync", () => {
       expect(repositoryTags.rows.map((row) => row.tag_id)).toEqual([
         "front-end",
       ])
+    } finally {
+      vi.unstubAllGlobals()
+      await database.cleanup()
+    }
+  })
+
+  it("marks previously healthy packages as unresolvable when later npm view validation fails", async () => {
+    const database = await createTestCatalogDatabase()
+    let syncRound = 0
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (url === "https://registry.npmjs.org/react") {
+        syncRound += 1
+
+        if (syncRound === 1) {
+          return createJsonResponse({
+            "dist-tags": { latest: "19.0.0" },
+            time: {
+              "19.0.0": "2026-01-01T00:00:00.000Z",
+            },
+            versions: {
+              "19.0.0": {
+                description: "UI library",
+                homepage: "https://react.dev",
+                repository: {
+                  url: "git+https://github.com/facebook/react.git",
+                },
+                keywords: ["react", "ui"],
+              },
+            },
+          })
+        }
+
+        return createJsonResponse({
+          "dist-tags": { latest: "19.0.1" },
+          time: {
+            "19.0.1": "2026-01-02T00:00:00.000Z",
+          },
+          versions: {
+            "19.0.1": {
+              keywords: ["react"],
+            },
+          },
+        })
+      }
+
+      if (url === "https://api.github.com/graphql") {
+        return createJsonResponse({
+          data: {
+            repo_0: {
+              stargazerCount: 200_000,
+              repositoryTopics: {
+                nodes: [{ topic: { name: "frontend" } }],
+              },
+            },
+          },
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          { packageName: "react", packageDownloads: 1000 },
+        ],
+      })
+
+      await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          { packageName: "react", packageDownloads: 1100 },
+        ],
+        npmViewRunner() {
+          return Promise.resolve(false)
+        },
+      })
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT repository_url, package_description, package_last_published_at
+          FROM packages
+          WHERE package_name = ?
+        `,
+        args: ["react"],
+      })
+
+      expect(packageRows.rows[0]).toMatchObject({
+        repository_url:
+          "https://registry.npmjs.org/-/unresolvable-via-npm-view",
+        package_description: "Unresolvable package",
+        package_last_published_at: null,
+      })
+    } finally {
+      vi.unstubAllGlobals()
+      await database.cleanup()
+    }
+  })
+
+  it("preserves previously healthy packages when npm view validation is inconclusive", async () => {
+    const database = await createTestCatalogDatabase()
+    let syncRound = 0
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (url === "https://registry.npmjs.org/react") {
+        syncRound += 1
+
+        if (syncRound === 1) {
+          return createJsonResponse({
+            "dist-tags": { latest: "19.0.0" },
+            time: {
+              "19.0.0": "2026-01-01T00:00:00.000Z",
+            },
+            versions: {
+              "19.0.0": {
+                description: "UI library",
+                homepage: "https://react.dev",
+                repository: {
+                  url: "git+https://github.com/facebook/react.git",
+                },
+                keywords: ["react", "ui"],
+              },
+            },
+          })
+        }
+
+        return createJsonResponse({
+          "dist-tags": { latest: "19.0.1" },
+          time: {
+            "19.0.1": "2026-01-02T00:00:00.000Z",
+          },
+          versions: {
+            "19.0.1": {
+              keywords: ["react"],
+            },
+          },
+        })
+      }
+
+      if (url === "https://api.github.com/graphql") {
+        return createJsonResponse({
+          data: {
+            repo_0: {
+              stargazerCount: 200_000,
+              repositoryTopics: {
+                nodes: [{ topic: { name: "frontend" } }],
+              },
+            },
+          },
+        })
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          { packageName: "react", packageDownloads: 1000 },
+        ],
+      })
+
+      const secondResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [
+          { packageName: "react", packageDownloads: 1100 },
+        ],
+        npmViewRunner() {
+          return Promise.resolve(null)
+        },
+      })
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT
+            repository_url,
+            package_description,
+            homepage_url,
+            repository_stars,
+            package_downloads,
+            package_last_published_at
+          FROM packages
+          WHERE package_name = ?
+        `,
+        args: ["react"],
+      })
+
+      expect(secondResult).toEqual({ syncedCount: 0 })
+      expect(packageRows.rows[0]).toMatchObject({
+        repository_url: "https://github.com/facebook/react",
+        package_description: "UI library",
+        homepage_url: "https://react.dev",
+        repository_stars: 200_000,
+        package_downloads: 1000,
+        package_last_published_at: "2026-01-01T00:00:00.000Z",
+      })
     } finally {
       vi.unstubAllGlobals()
       await database.cleanup()
@@ -1233,6 +1445,80 @@ describe("npm catalog sync", () => {
       })
 
       expect(result).toEqual({ syncedCount: 1 })
+      expect(packageRows.rows[0]).toMatchObject({
+        repository_url:
+          "https://registry.npmjs.org/-/unresolvable-via-npm-view",
+        package_description: "Unresolvable package",
+        package_last_published_at: null,
+      })
+    } finally {
+      vi.unstubAllGlobals()
+      await database.cleanup()
+    }
+  })
+
+  it("keeps npm-view-unresolvable packages hidden on later syncs with the same incomplete payload", async () => {
+    const database = await createTestCatalogDatabase()
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+
+      if (url === "https://registry.npmjs.org/-") {
+        return createJsonResponse({
+          name: "-",
+          description: "Package named dash",
+          "dist-tags": { latest: "0.0.1" },
+          time: {
+            "0.0.1": "2020-04-02T11:48:52.339Z",
+          },
+          versions: {
+            "0.0.1": {
+              description:
+                "> Created using https://github.com/parzh/create-package-typescript",
+            },
+          },
+        })
+      }
+
+      if (url === "https://api.github.com/graphql") {
+        throw new Error(
+          "GitHub should not be queried for npm-view-unresolvable packages."
+        )
+      }
+
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      const firstResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [{ packageName: "-", packageDownloads: 1000 }],
+        npmViewRunner() {
+          return Promise.resolve(false)
+        },
+      })
+      const secondResult = await syncNpmCatalog(database.client, {
+        githubToken: "test-token",
+        topPackageLimit: 10_000,
+        downloadCountsEntries: [{ packageName: "-", packageDownloads: 1000 }],
+        npmViewRunner() {
+          return Promise.resolve(false)
+        },
+      })
+
+      const packageRows = await database.client.execute({
+        sql: `
+          SELECT repository_url, package_description, package_last_published_at
+          FROM packages
+          WHERE package_name = ?
+        `,
+        args: ["-"],
+      })
+
+      expect(firstResult).toEqual({ syncedCount: 1 })
+      expect(secondResult).toEqual({ syncedCount: 0 })
       expect(packageRows.rows[0]).toMatchObject({
         repository_url:
           "https://registry.npmjs.org/-/unresolvable-via-npm-view",

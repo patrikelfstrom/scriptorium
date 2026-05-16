@@ -72,6 +72,29 @@ export function createNpmViewUnresolvablePackageMarker() {
   }
 }
 
+export function hasRemovedPackageMarker(input: {
+  packageDescription?: string | null
+  repositoryUrl?: string | null
+  homepageUrl?: string | null
+}) {
+  const packageDescription = normalizeOptionalString(input.packageDescription)
+  const repositoryUrl = normalizeOptionalString(input.repositoryUrl)
+  const homepageUrl = normalizeOptionalString(input.homepageUrl)
+
+  return (
+    (repositoryUrl === SECURITY_HOLDER_REPOSITORY_URL &&
+      packageDescription === SECURITY_HOLDER_DESCRIPTION) ||
+    (repositoryUrl === UNPUBLISHED_REPOSITORY_URL &&
+      packageDescription === UNPUBLISHED_DESCRIPTION) ||
+    (repositoryUrl === NPM_VIEW_UNRESOLVABLE_REPOSITORY_URL &&
+      packageDescription === NPM_VIEW_UNRESOLVABLE_DESCRIPTION) ||
+    repositoryUrl === SECURITY_HOLDER_REPOSITORY_URL ||
+    repositoryUrl === UNPUBLISHED_REPOSITORY_URL ||
+    repositoryUrl === NPM_VIEW_UNRESOLVABLE_REPOSITORY_URL ||
+    homepageUrl === SECURITY_HOLDER_HOMEPAGE_URL
+  )
+}
+
 export function hasUnpublishedRegistryMarker(value: unknown) {
   if (!value || typeof value !== "object") {
     return false

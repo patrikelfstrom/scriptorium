@@ -25,15 +25,37 @@ export async function searchCatalog(
       })
     )
   )
-  const { clauses, args } = buildSearchWhereClause(queryTerms, normalizedTags)
   const orderByClause = getCatalogOrderByClause(params.sort, params.direction)
-  const packageNames = await fetchVisiblePackageNames(
-    client,
-    params,
-    clauses,
-    args,
-    orderByClause
+  let searchDefinition = buildSearchWhereClause(
+    queryTerms,
+    normalizedTags,
+    true
   )
+  let packageNames: string[]
+
+  try {
+    packageNames = await fetchVisiblePackageNames(
+      client,
+      params,
+      searchDefinition.clauses,
+      searchDefinition.args,
+      orderByClause
+    )
+  } catch (error) {
+    if (!isMissingPackageSearchFtsError(error)) {
+      throw error
+    }
+
+    searchDefinition = buildSearchWhereClause(queryTerms, normalizedTags, false)
+    packageNames = await fetchVisiblePackageNames(
+      client,
+      params,
+      searchDefinition.clauses,
+      searchDefinition.args,
+      orderByClause
+    )
+  }
+
   const hasMore = packageNames.length > params.limit
   const visiblePackageNames = packageNames.slice(0, params.limit)
   const [packageMap, tagMap, totalApprox] = await Promise.all([
@@ -42,8 +64,7 @@ export async function searchCatalog(
     resolveTotalApproximation(
       client,
       params,
-      clauses,
-      args,
+      searchDefinition.hasFilters,
       visiblePackageNames.length,
       hasMore
     ),
@@ -91,20 +112,24 @@ export async function listCatalogTags(
 
   const result = await client.execute({
     sql: `
-      WITH merged_tags AS (
-        SELECT package_name, tag_id FROM package_tags
+      WITH visible_tag_pairs AS (
+        SELECT DISTINCT pt.package_name, pt.tag_id
+        FROM package_tags pt
+        JOIN packages p ON p.package_name = pt.package_name
+        WHERE ${createVisiblePackageSql("p")}
         UNION
-        SELECT package_name, tag_id FROM repository_tags
+        SELECT DISTINCT rt.package_name, rt.tag_id
+        FROM repository_tags rt
+        JOIN packages p ON p.package_name = rt.package_name
+        WHERE ${createVisiblePackageSql("p")}
       )
       SELECT
-        t.tag_id,
+        vtp.tag_id,
         t.label,
-        COUNT(DISTINCT mt.package_name) AS package_count
-      FROM tags t
-      JOIN merged_tags mt ON mt.tag_id = t.tag_id
-      JOIN packages p ON p.package_name = mt.package_name
-      WHERE ${createVisiblePackageSql("p")}
-      GROUP BY t.tag_id, t.label
+        COUNT(*) AS package_count
+      FROM visible_tag_pairs vtp
+      JOIN tags t ON t.tag_id = vtp.tag_id
+      GROUP BY vtp.tag_id, t.label
       ORDER BY package_count DESC, t.tag_id ASC
       LIMIT 500
     `,
@@ -119,25 +144,33 @@ export async function listCatalogTags(
   }
 }
 
-function buildSearchWhereClause(queryTerms: string[], tags: string[]) {
+function buildSearchWhereClause(
+  queryTerms: string[],
+  tags: string[],
+  preferFts: boolean
+) {
   const clauses = [`WHERE ${createVisiblePackageSql("p")}`]
   const args: Array<string | number> = []
+  const { ftsMatchExpression, fallbackTerms } =
+    buildCatalogSearchTerms(queryTerms)
 
-  for (const term of queryTerms) {
+  if (preferFts && ftsMatchExpression) {
     clauses.push(
-      `AND (
-        LOWER(p.package_name) LIKE '%' || ? || '%'
-        OR LOWER(COALESCE(p.package_description, '')) LIKE '%' || ? || '%'
-        OR LOWER(COALESCE(p.repository_url, '')) LIKE '%' || ? || '%'
-        OR EXISTS (
-          SELECT 1
-          FROM merged_tags mt_search
-          WHERE mt_search.package_name = p.package_name
-            AND mt_search.tag_id LIKE '%' || ? || '%'
-        )
+      `AND p.package_name IN (
+        SELECT package_name
+        FROM package_search_fts
+        WHERE package_search_fts MATCH ?
       )`
     )
-    args.push(term, term, term, term)
+    args.push(ftsMatchExpression)
+  }
+
+  if (!preferFts || fallbackTerms.length > 0) {
+    appendLegacyTextSearchClauses(
+      clauses,
+      args,
+      preferFts ? fallbackTerms : queryTerms
+    )
   }
 
   if (tags.length > 0) {
@@ -150,7 +183,64 @@ function buildSearchWhereClause(queryTerms: string[], tags: string[]) {
   return {
     clauses: clauses.join("\n"),
     args,
+    hasFilters: queryTerms.length > 0 || tags.length > 0,
   }
+}
+
+function buildCatalogSearchTerms(queryTerms: string[]) {
+  const tokenizedTerms = queryTerms.map((term) => ({
+    hasLiteralSyntax: /[^a-z0-9]/i.test(term),
+    term,
+    tokens: term.toLowerCase().match(/[a-z0-9]+/g) ?? [],
+  }))
+  const tokens = tokenizedTerms.flatMap(({ tokens }) => tokens)
+
+  return {
+    fallbackTerms: tokenizedTerms.flatMap(
+      ({ hasLiteralSyntax, term, tokens }) =>
+        tokens.length === 0 || hasLiteralSyntax ? [term] : []
+    ),
+    ftsMatchExpression:
+      tokens.length === 0
+        ? null
+        : tokens.map((token) => `${token}*`).join(" AND "),
+  }
+}
+
+function appendLegacyTextSearchClauses(
+  clauses: string[],
+  args: Array<string | number>,
+  queryTerms: string[]
+) {
+  for (const term of queryTerms) {
+    clauses.push(
+      `AND (
+        LOWER(p.package_name) LIKE '%' || ? || '%'
+        OR LOWER(COALESCE(p.package_description, '')) LIKE '%' || ? || '%'
+        OR LOWER(COALESCE(p.repository_url, '')) LIKE '%' || ? || '%'
+        OR EXISTS (
+          SELECT 1
+          FROM package_tags pt
+          WHERE pt.package_name = p.package_name
+            AND pt.tag_id LIKE '%' || ? || '%'
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM repository_tags rt
+          WHERE rt.package_name = p.package_name
+            AND rt.tag_id LIKE '%' || ? || '%'
+        )
+      )`
+    )
+    args.push(term, term, term, term, term)
+  }
+}
+
+function isMissingPackageSearchFtsError(error: unknown) {
+  return (
+    error instanceof Error &&
+    error.message.includes("no such table: package_search_fts")
+  )
 }
 
 function getCatalogOrderByClause(
@@ -182,9 +272,6 @@ async function fetchVisiblePackageNames(
   const listArgs = [...args, params.limit + 1, params.offset]
   const result = await client.execute({
     sql: `
-      WITH merged_tags AS (
-        ${MERGED_TAGS_SQL}
-      )
       SELECT p.package_name
       FROM packages p
       ${clauses}
@@ -257,30 +344,17 @@ async function fetchPackagesByName(
 async function resolveTotalApproximation(
   client: CatalogDatabaseClient,
   params: ParsedCatalogSearchParams,
-  clauses: string,
-  args: Array<string | number>,
+  hasFilters: boolean,
   visibleRowCount: number,
   hasMore: boolean
 ) {
-  if (params.offset !== 0) {
+  if (params.offset !== 0 || hasFilters) {
     return estimateTotalFromPage(params, visibleRowCount, hasMore)
   }
 
-  const countSql =
-    args.length === 0
-      ? `SELECT COUNT(*) AS total FROM packages p WHERE ${createVisiblePackageSql("p")}`
-      : `
-        WITH merged_tags AS (
-          ${MERGED_TAGS_SQL}
-        )
-        SELECT COUNT(*) AS total
-        FROM packages p
-        ${clauses}
-      `
   try {
     const countResult = await client.execute({
-      sql: countSql,
-      args,
+      sql: `SELECT COUNT(*) AS total FROM packages p WHERE ${createVisiblePackageSql("p")}`,
     })
 
     return normalizeNumber(countResult.rows[0]?.total)

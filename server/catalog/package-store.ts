@@ -39,7 +39,13 @@ export async function upsertPackage(
   client: CatalogDatabaseClient,
   packageRecord: CatalogPackageRecord
 ) {
-  await client.execute(createUpsertPackageStatement(packageRecord))
+  await client.batch(
+    [
+      createUpsertPackageStatement(packageRecord),
+      ...createRefreshPackageSearchStatements(packageRecord.packageName),
+    ],
+    "write"
+  )
 }
 
 export async function replacePackageTags(
@@ -49,7 +55,10 @@ export async function replacePackageTags(
   rawTags: string[]
 ) {
   await client.batch(
-    createReplaceTagStatements(tableName, packageName, rawTags),
+    [
+      ...createReplaceTagStatements(tableName, packageName, rawTags),
+      ...createRefreshPackageSearchStatements(packageName),
+    ],
     "write"
   )
 }
@@ -168,6 +177,90 @@ export function createReplaceTagStatements(
 
   return statements
 }
+
+export function createRefreshPackageSearchStatements(packageName: string) {
+  return createRefreshPackageSearchStatementsForPackages([packageName])
+}
+
+export function createRefreshPackageSearchStatementsForPackages(
+  packageNames: string[]
+) {
+  const uniquePackageNames = Array.from(new Set(packageNames))
+
+  if (uniquePackageNames.length === 0) {
+    return [] satisfies InStatement[]
+  }
+
+  const placeholders = uniquePackageNames.map(() => "?").join(", ")
+
+  return [
+    {
+      sql: `DELETE FROM package_search_fts WHERE package_name IN (${placeholders})`,
+      args: uniquePackageNames,
+    },
+    {
+      sql: `
+        INSERT INTO package_search_fts (package_name, search_text)
+        SELECT
+          p.package_name,
+          ${PACKAGE_SEARCH_TEXT_SQL}
+        FROM packages p
+        WHERE p.package_name IN (${placeholders})
+      `,
+      args: uniquePackageNames,
+    },
+  ] satisfies InStatement[]
+}
+
+export function createRebuildPackageSearchStatements(): InStatement[] {
+  return [
+    {
+      sql: `DELETE FROM package_search_fts`,
+    },
+    {
+      sql: `
+        INSERT INTO package_search_fts (package_name, search_text)
+        SELECT
+          p.package_name,
+          ${PACKAGE_SEARCH_TEXT_SQL}
+        FROM packages p
+      `,
+    },
+  ]
+}
+
+const PACKAGE_SEARCH_TEXT_SQL = `
+  LOWER(
+    TRIM(
+      COALESCE(p.package_name, '') || ' ' ||
+      COALESCE(p.package_description, '') || ' ' ||
+      COALESCE(p.repository_url, '') || ' ' ||
+      COALESCE((
+        SELECT GROUP_CONCAT(tag_value, ' ')
+        FROM (
+          SELECT DISTINCT tag_value
+          FROM (
+            SELECT tag_id AS tag_value
+            FROM package_tags
+            WHERE package_name = p.package_name
+            UNION ALL
+            SELECT raw_value AS tag_value
+            FROM package_tags
+            WHERE package_name = p.package_name
+            UNION ALL
+            SELECT tag_id AS tag_value
+            FROM repository_tags
+            WHERE package_name = p.package_name
+            UNION ALL
+            SELECT raw_value AS tag_value
+            FROM repository_tags
+            WHERE package_name = p.package_name
+          )
+        )
+      ), '')
+    )
+  )
+`
 
 function normalizeOptionalString(value: string) {
   const trimmed = value.trim()

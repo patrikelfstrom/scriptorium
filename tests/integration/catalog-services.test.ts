@@ -58,6 +58,109 @@ describe("catalog services", () => {
     }
   })
 
+  it("matches package text and tags through the FTS search index", async () => {
+    const database = await createTestCatalogDatabase()
+
+    try {
+      await seedCatalogPackage(database.client, {
+        packageName: "@tanstack/react-query",
+        packageDescription: "Async state manager for React",
+        repositoryUrl: "https://github.com/TanStack/query",
+        packageTags: ["react", "async state"],
+        repositoryTags: ["data fetching"],
+      })
+      await seedCatalogPackage(database.client, {
+        packageName: "query-react-tanstack",
+        packageDescription: "tanstack react query companion",
+        repositoryUrl: "https://github.com/example/query-react-tanstack",
+        packageTags: ["tanstack", "react", "query"],
+      })
+      await seedCatalogPackage(database.client, {
+        packageName: "vue",
+        packageDescription: "Progressive framework",
+        repositoryUrl: "https://github.com/vuejs/core",
+        packageTags: ["vue"],
+      })
+
+      const scopedResult = await searchCatalog(
+        database.client,
+        parseCatalogSearchParams(
+          new URLSearchParams({
+            q: "@tanstack/react-query",
+          })
+        )
+      )
+      const tagResult = await searchCatalog(
+        database.client,
+        parseCatalogSearchParams(
+          new URLSearchParams({
+            q: "data fetching",
+          })
+        )
+      )
+      const punctuationResult = await searchCatalog(
+        database.client,
+        parseCatalogSearchParams(
+          new URLSearchParams({
+            q: "@",
+          })
+        )
+      )
+
+      expect(scopedResult.items.map((item) => item.packageName)).toEqual([
+        "@tanstack/react-query",
+      ])
+      expect(tagResult.items.map((item) => item.packageName)).toEqual([
+        "@tanstack/react-query",
+      ])
+      expect(punctuationResult.items.map((item) => item.packageName)).toEqual([
+        "@tanstack/react-query",
+      ])
+    } finally {
+      await database.cleanup()
+    }
+  })
+
+  it("falls back to legacy search when the FTS table is unavailable", async () => {
+    const database = await createTestCatalogDatabase()
+
+    try {
+      await seedCatalogPackage(database.client, {
+        packageName: "react",
+        packageDescription: "UI library",
+        repositoryUrl: "https://github.com/facebook/react",
+        packageTags: ["react"],
+        repositoryTags: ["data-fetching"],
+      })
+
+      await database.client.execute("DROP TABLE package_search_fts")
+
+      const result = await searchCatalog(
+        database.client,
+        parseCatalogSearchParams(
+          new URLSearchParams({
+            q: "react",
+          })
+        )
+      )
+      const tagOnlyResult = await searchCatalog(
+        database.client,
+        parseCatalogSearchParams(
+          new URLSearchParams({
+            q: "data fetching",
+          })
+        )
+      )
+
+      expect(result.items.map((item) => item.packageName)).toEqual(["react"])
+      expect(tagOnlyResult.items.map((item) => item.packageName)).toEqual([
+        "react",
+      ])
+    } finally {
+      await database.cleanup()
+    }
+  })
+
   it("sorts catalog rows by stars, downloads, and published date", async () => {
     const database = await createTestCatalogDatabase()
 

@@ -19,6 +19,7 @@ import { SearchFilter } from "./components/SearchFilter"
 export function CatalogPage() {
   const { theme, setTheme } = useTheme()
   const inputId = useId()
+  const [shouldLoadTags, setShouldLoadTags] = useState(false)
   const {
     debouncedSearchText,
     searchText,
@@ -38,6 +39,7 @@ export function CatalogPage() {
     loadRowsForRange,
     totalRows,
   } = useCatalogData({
+    loadTags: shouldLoadTags || selectedTags.length > 0,
     query: debouncedSearchText,
     selectedTags,
     sortState,
@@ -107,6 +109,7 @@ export function CatalogPage() {
                 activeSuggestionIndex={activeSuggestionIndex}
                 inputId={inputId}
                 isDarkMode={isDarkMode}
+                onInputFocus={() => setShouldLoadTags(true)}
                 searchText={searchText}
                 selectedTags={selectedTags}
                 setActiveSuggestionIndex={setActiveSuggestionIndex}

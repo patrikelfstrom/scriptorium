@@ -165,6 +165,45 @@ describe("worker routes", () => {
       await database.cleanup()
     }
   })
+
+  it("repairs remote schema on-demand when read queries hit an older database layout", async () => {
+    const database = await createTestCatalogDatabase()
+
+    try {
+      await database.client.execute("DROP TABLE IF EXISTS package_search_fts")
+      await database.client.execute("DROP TABLE IF EXISTS repository_tags")
+      await database.client.execute("DROP TABLE IF EXISTS package_tags")
+      await database.client.execute("DROP TABLE IF EXISTS tag_aliases")
+      await database.client.execute("DROP TABLE IF EXISTS tags")
+      await database.client.execute("DROP TABLE IF EXISTS packages")
+
+      const env = {
+        TURSO_DATABASE_URL: database.url,
+        TURSO_AUTH_TOKEN: undefined,
+      }
+
+      const searchResponse = await worker.fetch(
+        new Request("https://example.com/api/search?q=react&limit=5"),
+        env
+      )
+      const tagsResponse = await worker.fetch(
+        new Request("https://example.com/api/tags"),
+        env
+      )
+
+      expect(searchResponse.status).toBe(200)
+      expect(tagsResponse.status).toBe(200)
+      expect(await searchResponse.json()).toMatchObject({
+        items: [],
+        totalApprox: 0,
+      })
+      expect(await tagsResponse.json()).toEqual({
+        items: [],
+      })
+    } finally {
+      await database.cleanup()
+    }
+  })
 })
 
 async function createCatalogCacheKey(

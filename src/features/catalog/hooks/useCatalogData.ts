@@ -17,6 +17,7 @@ import {
 import type { SortState } from "../types"
 
 export function useCatalogData(input: {
+  loadTags: boolean
   query: string
   selectedTags: string[]
   sortState: SortState
@@ -64,6 +65,7 @@ export function useCatalogData(input: {
   const tagsQuery = useQuery({
     queryKey: ["catalog-tags"],
     queryFn: ({ signal }) => fetchCatalogTags(signal),
+    enabled: input.loadTags,
     staleTime: 12 * 60 * 60_000,
   })
   const rowsByIndex = new Map<

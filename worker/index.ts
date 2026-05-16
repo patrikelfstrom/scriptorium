@@ -8,6 +8,7 @@ import type { CatalogTagListResponse } from "../shared/catalog"
 import {
   createCatalogDatabaseClient,
   getCatalogDatabaseIdentity,
+  shouldEagerlyEnsureCatalogSchemaOnRead,
 } from "../server/catalog/database"
 import { listCatalogTags, searchCatalog } from "../server/catalog/read-service"
 import { ensureCatalogSchema } from "../server/catalog/schema"
@@ -109,29 +110,22 @@ async function handleSearchRequest(url: URL, env: WorkerEnv) {
     return response
   }
 
-  await ensureCatalogSchemaReady(env)
+  const payload = await runCatalogReadWithSchemaRepair(env, (client) =>
+    searchCatalog(client, params)
+  )
+  const response = jsonResponse(payload, 200, {
+    "Cache-Control": SEARCH_CACHE_CONTROL,
+  })
 
-  const client = createCatalogDatabaseClient(env)
+  await putKvCachedPayload(
+    env,
+    kvCacheKey,
+    payload,
+    SEARCH_KV_CACHE_TTL_SECONDS
+  )
+  await cacheEdgeResponse(request, response)
 
-  try {
-    const payload = await searchCatalog(client, params)
-
-    const response = jsonResponse(payload, 200, {
-      "Cache-Control": SEARCH_CACHE_CONTROL,
-    })
-
-    await putKvCachedPayload(
-      env,
-      kvCacheKey,
-      payload,
-      SEARCH_KV_CACHE_TTL_SECONDS
-    )
-    await cacheEdgeResponse(request, response)
-
-    return response
-  } finally {
-    client.close?.()
-  }
+  return response
 }
 
 function createCanonicalSearchRequest(
@@ -199,27 +193,21 @@ async function handleTagsRequest(request: Request, _url: URL, env: WorkerEnv) {
     return response
   }
 
-  await ensureCatalogSchemaReady(env)
+  const payload = await runCatalogReadWithSchemaRepair(env, (client) =>
+    listCatalogTags(client, parseCatalogTagListParams())
+  )
+  const response = jsonResponse(payload, 200, {
+    "Cache-Control": TAG_CACHE_CONTROL,
+  })
 
-  const client = createCatalogDatabaseClient(env)
+  tagPayloadCache.set(databaseIdentity, {
+    expiresAt: Date.now() + TAG_MEMORY_CACHE_TTL_MS,
+    payload,
+  })
+  await putKvCachedPayload(env, kvCacheKey, payload, TAG_KV_CACHE_TTL_SECONDS)
+  await cacheEdgeResponse(request, response)
 
-  try {
-    const payload = await listCatalogTags(client, parseCatalogTagListParams())
-    const response = jsonResponse(payload, 200, {
-      "Cache-Control": TAG_CACHE_CONTROL,
-    })
-
-    tagPayloadCache.set(databaseIdentity, {
-      expiresAt: Date.now() + TAG_MEMORY_CACHE_TTL_MS,
-      payload,
-    })
-    await putKvCachedPayload(env, kvCacheKey, payload, TAG_KV_CACHE_TTL_SECONDS)
-    await cacheEdgeResponse(request, response)
-
-    return response
-  } finally {
-    client.close?.()
-  }
+  return response
 }
 
 async function ensureCatalogSchemaReady(env: WorkerEnv) {
@@ -246,6 +234,49 @@ async function ensureCatalogSchemaReady(env: WorkerEnv) {
 
   schemaReadyPromises.set(databaseIdentity, nextPromise)
   await nextPromise
+}
+
+async function runCatalogReadWithSchemaRepair<T>(
+  env: WorkerEnv,
+  operation: (
+    client: ReturnType<typeof createCatalogDatabaseClient>
+  ) => Promise<T>
+) {
+  if (shouldEagerlyEnsureCatalogSchemaOnRead(env)) {
+    await ensureCatalogSchemaReady(env)
+  }
+
+  let client = createCatalogDatabaseClient(env)
+
+  try {
+    return await operation(client)
+  } catch (error) {
+    if (
+      shouldEagerlyEnsureCatalogSchemaOnRead(env) ||
+      !isCatalogSchemaCompatibilityError(error)
+    ) {
+      throw error
+    }
+
+    client.close?.()
+    await ensureCatalogSchemaReady(env)
+    client = createCatalogDatabaseClient(env)
+    return await operation(client)
+  } finally {
+    client.close?.()
+  }
+}
+
+function isCatalogSchemaCompatibilityError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error.message.includes("no such table") ||
+    error.message.includes("no such column") ||
+    error.message.includes("has no column named")
+  )
 }
 
 function getMemoryCachedTagsPayload(databaseIdentity: string) {

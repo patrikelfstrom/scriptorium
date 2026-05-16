@@ -13,8 +13,10 @@ import {
 } from "./npm-registry"
 import {
   createReplaceTagStatements,
-  createUpsertPackageStatement,
   createPackageUrl,
+  createRebuildPackageSearchStatements,
+  createRefreshPackageSearchStatementsForPackages,
+  createUpsertPackageStatement,
   type CatalogPackageRecord,
 } from "./package-store"
 import {
@@ -31,6 +33,7 @@ const DEFAULT_NPM_FETCH_CONCURRENCY = 12
 const DEFAULT_WRITE_BATCH_SIZE = 25
 const DEFAULT_SYNC_USER_AGENT = "scriptorium/0.1.1"
 const PROGRESS_INTERVAL_MS = 60_000
+const NPM_VIEW_TIMEOUT_MS = 1_000
 const HTTP_TOO_MANY_REQUESTS = 429
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504])
 const require = createRequire(import.meta.url)
@@ -77,7 +80,6 @@ type RepositoryEnrichmentOutcome =
     }
 
 type GitHubRepositoryMetadataMap = Map<string, GitHubRepositoryMetadata>
-
 type GitHubRepositoryBatchResponse = Record<
   string,
   | {
@@ -129,7 +131,7 @@ type SyncNpmCatalogOptions = {
   githubBatchSize?: number
   shardCount?: number
   shardIndex?: number
-  npmViewRunner?: (packageName: string) => Promise<boolean>
+  npmViewRunner?: (packageName: string) => Promise<boolean | null>
 }
 
 export async function syncNpmCatalog(
@@ -266,6 +268,11 @@ export async function syncNpmCatalog(
 
           return statements
         })
+        statements.push(
+          ...createRefreshPackageSearchStatementsForPackages(
+            batch.map((item) => item.packageName)
+          )
+        )
 
         await client.batch(statements, "write")
         storedCount += batch.length
@@ -289,6 +296,8 @@ export async function syncNpmCatalog(
 
   options.onProgress?.("Pruning orphaned tags.")
   await pruneOrphanedTags(client)
+  options.onProgress?.("Rebuilding package search index.")
+  await client.batch(createRebuildPackageSearchStatements(), "write")
 
   options.onProgress?.(`Stored ${packageMetadata.length} npm packages total.`)
 
@@ -745,7 +754,14 @@ async function fetchNpmPackageMetadata(
       (await options.npmViewRunner?.(packageName)) ??
       (await resolvePackageWithNpmView(packageName))
 
-    if (!npmViewResolves) {
+    if (npmViewResolves === null) {
+      options.onProgress?.(
+        `Skipping npm package ${packageName} because npm view validation was inconclusive.`
+      )
+      return undefined
+    }
+
+    if (npmViewResolves === false) {
       options.onProgress?.(
         `Marking npm package ${packageName} as removed because npm view could not resolve it.`
       )
@@ -1043,21 +1059,35 @@ function shouldValidatePackageWithNpmView(input: {
 
 async function resolvePackageWithNpmView(packageName: string) {
   try {
-    await execFileAsync("npm", [
-      "view",
-      packageName,
-      "name",
-      "version",
-      "--json",
-    ])
+    await execFileAsync(
+      "npm",
+      ["view", packageName, "name", "version", "--json"],
+      {
+        timeout: NPM_VIEW_TIMEOUT_MS,
+      }
+    )
     return true
   } catch (error) {
     if (isNpmViewNotFoundError(error)) {
       return false
     }
 
+    if (isNpmViewIndeterminateError(error)) {
+      return null
+    }
+
     throw error
   }
+}
+
+function isNpmViewIndeterminateError(error: unknown) {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as { code?: unknown }).code === null &&
+    "signal" in error &&
+    (error as { signal?: unknown }).signal === "SIGTERM"
+  )
 }
 
 function isNpmViewNotFoundError(error: unknown) {

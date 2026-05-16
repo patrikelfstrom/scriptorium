@@ -1,6 +1,7 @@
 import type { InStatement } from "@libsql/client"
 
 import type { CatalogDatabaseClient } from "./database"
+import { createRebuildPackageSearchStatements } from "./package-store"
 
 const EXPECTED_TABLE_COLUMNS = {
   packages: [
@@ -70,6 +71,14 @@ const schemaStatements: InStatement[] = [
     )
   `,
   `
+    CREATE VIRTUAL TABLE IF NOT EXISTS package_search_fts
+    USING fts5(
+      package_name UNINDEXED,
+      search_text,
+      tokenize = 'unicode61 remove_diacritics 2'
+    )
+  `,
+  `
     CREATE INDEX IF NOT EXISTS packages_downloads_idx
     ON packages(package_downloads DESC)
   `,
@@ -128,6 +137,7 @@ const destructiveResetStatements: InStatement[] = [
   "DROP INDEX IF EXISTS packages_hits_idx",
   "DROP TABLE IF EXISTS repository_tags",
   "DROP TABLE IF EXISTS package_tags",
+  "DROP TABLE IF EXISTS package_search_fts",
   "DROP TABLE IF EXISTS tag_aliases",
   "DROP TABLE IF EXISTS tags",
   "DROP TABLE IF EXISTS packages",
@@ -142,11 +152,13 @@ export async function ensureCatalogSchema(client: CatalogDatabaseClient) {
 
   await applyStatements(client, obsoleteIndexDropStatements)
   await applyStatements(client, schemaStatements)
+  await applyStatements(client, createRebuildPackageSearchStatements())
 }
 
 export async function resetCatalogSchema(client: CatalogDatabaseClient) {
   await applyStatements(client, destructiveResetStatements)
   await applyStatements(client, schemaStatements)
+  await applyStatements(client, createRebuildPackageSearchStatements())
 }
 
 async function applyStatements(
