@@ -1,1 +1,6 @@
+allowBuilds:
+  esbuild: true
+  msw: false
+  sharp: false
+  workerd: true
 minimumReleaseAge: 10080
