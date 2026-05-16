@@ -2,6 +2,7 @@ name = "scriptorium"
 main = "worker/index.ts"
 compatibility_date = "2026-04-01"
 keep_vars = true
+send_metrics = false
 
 [observability]
 enabled = true
