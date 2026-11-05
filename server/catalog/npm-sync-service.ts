@@ -139,8 +139,7 @@ class RetryableHttpError extends Error {
 }
 
 type RecoverableGitHubMetadataError =
-  | GitHubMetadataFetchError
-  | RetryableHttpError
+  GitHubMetadataFetchError | RetryableHttpError
 
 type SyncNpmCatalogOptions = {
   githubToken: string
