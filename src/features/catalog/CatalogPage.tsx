@@ -74,7 +74,12 @@ export function CatalogPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <h1 className="text-base font-semibold tracking-[0.18em] text-foreground uppercase sm:text-lg sm:tracking-[0.2em]">
-                scriptorium
+                <a
+                  href="/"
+                  className="rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+                >
+                  scriptorium
+                </a>
               </h1>
               <div className="ml-auto flex items-center gap-2">
                 <a
