@@ -472,9 +472,11 @@ async function loadTopDownloadCountEntries(
   client: CatalogDatabaseClient,
   options: SyncNpmCatalogOptions
 ) {
+  // Read before parsing the large download-count map. Parsing blocks the event
+  // loop and can leave a closed database keep-alive socket pending cleanup.
+  const removedPackageNames = await loadRemovedPackageNames(client)
   const entries =
     options.downloadCountsEntries ?? (await loadDownloadCountsEntries())
-  const removedPackageNames = await loadRemovedPackageNames(client)
   const eligibleEntries =
     removedPackageNames.size === 0
       ? entries
