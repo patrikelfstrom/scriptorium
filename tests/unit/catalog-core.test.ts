@@ -54,8 +54,8 @@ describe("catalog core helpers", () => {
       tags: ["frontend", "ui"],
       limit: 1000,
       cursor: encodeCatalogCursor(40),
-      sort: "name",
-      direction: "asc",
+      sort: "published",
+      direction: "desc",
       offset: 40,
     })
   })

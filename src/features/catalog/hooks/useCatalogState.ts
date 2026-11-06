@@ -10,8 +10,8 @@ import {
 import type { SortState } from "../types"
 
 const DEFAULT_SORT_STATE: SortState = {
-  column: "name",
-  direction: "asc",
+  column: normalizeCatalogSort(),
+  direction: normalizeCatalogSortDirection(),
 }
 
 export function useCatalogState() {

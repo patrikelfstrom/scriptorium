@@ -57,7 +57,7 @@ function clampCatalogLimit(value?: string | null) {
 export function normalizeCatalogSort(value?: string | null): CatalogSortColumn {
   return CATALOG_SORT_COLUMNS.includes(value as CatalogSortColumn)
     ? (value as CatalogSortColumn)
-    : "name"
+    : "published"
 }
 
 export function normalizeCatalogSortDirection(
@@ -65,7 +65,7 @@ export function normalizeCatalogSortDirection(
 ): CatalogSortDirection {
   return CATALOG_SORT_DIRECTIONS.includes(value as CatalogSortDirection)
     ? (value as CatalogSortDirection)
-    : "asc"
+    : "desc"
 }
 
 export function tokenizeCatalogQuery(query: string) {
